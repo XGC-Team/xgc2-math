@@ -872,6 +872,19 @@ void testPose3InertialEskfStationaryPropagation() {
     expect(eskf.state().orientation.w() >= 0.0);
 }
 
+void testPose3InertialEskfMidpointIntegrationPublishesCurrentAngularRate() {
+    xgc2_math::Pose3InertialEskf eskf;
+    const auto imu0 = InertialPoseTestSamples::inertial(1.0, Eigen::Vector3d::Zero());
+    eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+
+    const Eigen::Vector3d current_gyro(1.0, -0.4, 0.2);
+    const auto imu1 = InertialPoseTestSamples::inertial(1.02, current_gyro);
+    eskf.propagateInertial(imu1);
+
+    expect((eskf.state().angular_velocity - current_gyro).norm() < 1.0e-12);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.02) < 1.0e-12);
+}
+
 void testPose3InertialEskfTimeJumpResets() {
     xgc2_math::Pose3InertialEskf eskf;
     const auto imu0 = InertialPoseTestSamples::inertial(1.0);
@@ -905,6 +918,61 @@ void testPose3InertialEskfPoseUpdateAndReject() {
     expect(!result.accepted);
     expect(result.innovation_rejected);
     expect(eskf.state().position.x() < held_position + 0.1);
+}
+
+void testPose3InertialEskfHighNisWithinAbsoluteGateIsSoftHealth() {
+    xgc2_math::Pose3InertialEskfConfig config;
+    config.innovation_position_gate_m = 1.0;
+    config.pose_position_noise_std = 1.0e-3;
+    config.pose_orientation_noise_std = 1.0e-3;
+    config.pose_nis_gate = 0.1;
+    config.vrpn_health.window_chi_square_gate = 0.1;
+
+    xgc2_math::Pose3InertialEskf eskf;
+    eskf.setConfig(config);
+    const auto imu0 = InertialPoseTestSamples::inertial(1.0);
+    eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+
+    const auto result = eskf.updatePose(InertialPoseTestSamples::pose(1.01, Eigen::Vector3d(0.05, 0.0, 0.0)));
+    expect(result.accepted);
+    expect(!result.innovation_rejected);
+    expect(result.reject_reason == xgc2_math::PoseFusionRejectReason::kNone);
+    expect(result.mahalanobis_distance > config.pose_nis_gate);
+    expect(result.vrpn_observation_state == xgc2_math::VrpnObservationState::kSuspected);
+    expect(result.filter_health == xgc2_math::FilterHealth::kDegraded);
+    expect(eskf.vrpnConsecutiveRejects() == 0u);
+    expect(eskf.lastFusedPoseStampS() == 1.01);
+}
+
+void testPose3InertialEskfPredictionErrorDoesNotRejectContinuousVrpn() {
+    xgc2_math::Pose3InertialEskfConfig config;
+    config.innovation_position_gate_m = 0.5;
+    config.pose_position_noise_std = 0.01;
+    config.pose_orientation_noise_std = 0.01;
+    config.pose_nis_gate = 1.0e6;
+
+    xgc2_math::Pose3InertialEskf eskf;
+    eskf.setConfig(config);
+    const auto imu0 = InertialPoseTestSamples::inertial(1.0);
+    eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+
+    auto result = eskf.updatePose(InertialPoseTestSamples::pose(1.01, Eigen::Vector3d(0.1, 0.0, 0.0)));
+    expect(result.accepted);
+
+    const auto bad_imu =
+        InertialPoseTestSamples::inertial(1.41, Eigen::Vector3d::Zero(), Eigen::Vector3d(80.0, 0.0, 9.8066));
+    eskf.propagateInertial(bad_imu);
+    expect(eskf.state().position.x() > 0.7);
+
+    result = eskf.updatePose(InertialPoseTestSamples::pose(1.42, Eigen::Vector3d(0.2, 0.0, 0.0)));
+    expect(result.accepted);
+    expect(!result.innovation_rejected);
+    expect(result.reject_reason == xgc2_math::PoseFusionRejectReason::kNone);
+    expect(result.position_innovation_norm > config.innovation_position_gate_m);
+    expect(eskf.vrpnConsecutiveRejects() == 0u);
+    expect(std::fabs(eskf.rawProjectedBodyPose().position.x() - 0.2) < 1.0e-12);
+    expect(std::fabs(eskf.lastFusedPoseStampS() - 1.42) < 1.0e-12);
+    expect(std::fabs(eskf.state().position.x() - 0.2) < 0.08);
 }
 
 void testPose3InertialEskfInvalidAndLargeDtHoldState() {
@@ -943,6 +1011,7 @@ void testPose3InertialEskfGyroBiasAndCorrectedPose() {
     eskf.setConfig(config);
     const auto imu0 = InertialPoseTestSamples::inertial(1.0);
     eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+    eskf.propagateInertial(InertialPoseTestSamples::inertial(1.1));
 
     const auto yaw_pose = InertialPoseTestSamples::pose(1.1, Eigen::Vector3d(0.2, 0.0, 0.0),
                                                         xgc2_math::rpyToQuaternion(Eigen::Vector3d(0.0, 0.0, 0.1)));
@@ -954,6 +1023,31 @@ void testPose3InertialEskfGyroBiasAndCorrectedPose() {
     expect(eskf.state().position.x() > 0.0);
     expect(eskf.covariance().trace() > 0.0);
     expect(eskf.state().orientation.w() >= 0.0);
+}
+
+void testPose3InertialEskfPoseUpdateRefreshesDerivedImuState() {
+    xgc2_math::Pose3InertialEskfConfig config;
+    config.pose_position_noise_std = 0.01;
+    config.pose_orientation_noise_std = 0.001;
+    config.initial_gyro_bias_variance = 0.5;
+    config.pose_nis_gate = 1.0e6;
+
+    xgc2_math::Pose3InertialEskf eskf;
+    eskf.setConfig(config);
+    const auto imu0 = InertialPoseTestSamples::inertial(1.0);
+    eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+
+    const Eigen::Vector3d latest_gyro(0.4, -0.2, 0.1);
+    const auto imu1 = InertialPoseTestSamples::inertial(1.1, latest_gyro);
+    eskf.propagateInertial(imu1);
+
+    const auto pose = InertialPoseTestSamples::pose(1.1, Eigen::Vector3d::Zero(),
+                                                    xgc2_math::rpyToQuaternion(Eigen::Vector3d(0.0, 0.0, 0.2)));
+    const auto result = eskf.updatePose(pose);
+    expect(result.accepted);
+    expect(eskf.state().gyro_bias.norm() > 1.0e-6);
+    const Eigen::Vector3d expected_angular_velocity = latest_gyro - eskf.state().gyro_bias;
+    expect((eskf.state().angular_velocity - expected_angular_velocity).norm() < 1.0e-12);
 }
 
 void testPose3InertialEskfFixedOfflineExtrinsic() {
@@ -1030,8 +1124,20 @@ void testPose3InertialEskfMultiRateSequentialPoseFusion() {
     expect(std::fabs(eskf.lastFusedPoseStampS() - held_last_fused_stamp) < 1.0e-12);
     expect((eskf.state().position - held_state.position).norm() < 1.0e-12);
 
-    const auto accepted_result =
-        eskf.updatePose(InertialPoseTestSamples::pose(1.083, Eigen::Vector3d(0.0035, 0.0, 0.0)));
+    const auto stale_inertial_pose = InertialPoseTestSamples::pose(1.083, Eigen::Vector3d(0.0035, 0.0, 0.0));
+    const auto stale_inertial_result = eskf.updatePose(stale_inertial_pose);
+    expect(!stale_inertial_result.accepted);
+    expect(stale_inertial_result.time_alignment_rejected);
+    expect(stale_inertial_result.reject_reason == xgc2_math::PoseFusionRejectReason::kTimeAlignment);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - held_state.last_inertial_stamp_sec) < 1.0e-12);
+
+    auto imu2 =
+        InertialPoseTestSamples::inertial(1.083, Eigen::Vector3d(0.2, -0.1, 0.03), Eigen::Vector3d(1.0, 0.0, 9.8066));
+    eskf.propagateInertial(imu2);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.083) < 1.0e-12);
+    expect((eskf.state().angular_velocity - imu2.angular_velocity).norm() < 1.0e-12);
+
+    const auto accepted_result = eskf.updatePose(stale_inertial_pose);
     expect(accepted_result.accepted);
     expect(!accepted_result.time_alignment_rejected);
     expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.083) < 1.0e-12);
@@ -1116,11 +1222,11 @@ void testPose3InertialEskfVrpnHealthTransitions() {
     expect(std::fabs(eskf.vrpnInnovationWindowChiSquare()) < 1.0e-12);
 
     result = eskf.updatePose(InertialPoseTestSamples::pose(1.03, Eigen::Vector3d::Zero()));
-    expect(!result.accepted);
-    expect(result.reject_reason == xgc2_math::PoseFusionRejectReason::kVrpnFault);
-    expect(result.vrpn_observation_state == xgc2_math::VrpnObservationState::kRecovery);
+    expect(result.accepted);
+    expect(result.reject_reason == xgc2_math::PoseFusionRejectReason::kNone);
+    expect(result.vrpn_observation_state != xgc2_math::VrpnObservationState::kFault);
     expect(result.filter_health == xgc2_math::FilterHealth::kDegraded);
-    expect(std::fabs(eskf.vrpnInnovationWindowChiSquare()) < 1.0e-12);
+    expect(std::fabs(eskf.rawProjectedBodyPose().position.x()) < 1.0e-12);
 
     result = eskf.updatePose(InertialPoseTestSamples::pose(1.04, Eigen::Vector3d::Zero()));
     expect(result.accepted);
@@ -1306,10 +1412,14 @@ int main() {
     testPose3InertialEskfInitialization();
     testPose3InertialEskfUpdatePoseInitializesAndHealthUsesCovariance();
     testPose3InertialEskfStationaryPropagation();
+    testPose3InertialEskfMidpointIntegrationPublishesCurrentAngularRate();
     testPose3InertialEskfTimeJumpResets();
     testPose3InertialEskfPoseUpdateAndReject();
+    testPose3InertialEskfHighNisWithinAbsoluteGateIsSoftHealth();
+    testPose3InertialEskfPredictionErrorDoesNotRejectContinuousVrpn();
     testPose3InertialEskfInvalidAndLargeDtHoldState();
     testPose3InertialEskfGyroBiasAndCorrectedPose();
+    testPose3InertialEskfPoseUpdateRefreshesDerivedImuState();
     testPose3InertialEskfFixedOfflineExtrinsic();
     testPose3InertialEskfMultiRateSequentialPoseFusion();
     testPose3InertialEskfMeasurementJacobianMatchesFiniteDifference();

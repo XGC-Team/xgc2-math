@@ -25,12 +25,14 @@ struct Pose3InertialEskfConfig {
     double gyro_noise_std{0.03};
     double pose_position_noise_std{0.01};
     double pose_orientation_noise_std{0.01};
+    double velocity_noise_std{0.05};
     double gyro_bias_random_walk_std{1.0e-4};
     double accel_bias_random_walk_std{1.0e-3};
     double extrinsic_position_random_walk_std{1.0e-5};
     double extrinsic_orientation_random_walk_std{1.0e-5};
     double innovation_position_gate_m{1.5};
     double innovation_orientation_gate_rad{0.8};
+    double velocity_innovation_gate_mps{3.0};
     double pose_nis_gate{22.5};
     double covariance_high_threshold{100.0};
     double max_propagation_dt_s{0.01};
@@ -61,6 +63,16 @@ struct PoseMeasurement {
     bool valid{false};
     bool time_jump{false};
     Pose3 pose{};
+    double stamp_sec{0.0};
+    double last_dt_sec{0.0};
+    double estimated_rate_hz{0.0};
+};
+
+struct VelocityMeasurement {
+    bool received{false};
+    bool valid{false};
+    bool time_jump{false};
+    Eigen::Vector3d velocity{Eigen::Vector3d::Zero()};
     double stamp_sec{0.0};
     double last_dt_sec{0.0};
     double estimated_rate_hz{0.0};
@@ -101,6 +113,10 @@ inline bool validPoseMeasurement(const PoseMeasurement& sample) {
     return sample.received && sample.valid && std::isfinite(sample.stamp_sec) && isFinite(sample.pose);
 }
 
+inline bool validVelocityMeasurement(const VelocityMeasurement& sample) {
+    return sample.received && sample.valid && std::isfinite(sample.stamp_sec) && isFinite(sample.velocity);
+}
+
 inline Eigen::Matrix3d skewMatrix(const Eigen::Vector3d& value) {
     Eigen::Matrix3d result;
     result(0, 0) = 0.0;
@@ -130,6 +146,7 @@ inline void normalize(Pose3InertialEskfConfig& config) {
     config.gyro_noise_std = pose3_inertial_eskf_detail::positiveOr(config.gyro_noise_std, 0.03);
     config.pose_position_noise_std = pose3_inertial_eskf_detail::positiveOr(config.pose_position_noise_std, 0.01);
     config.pose_orientation_noise_std = pose3_inertial_eskf_detail::positiveOr(config.pose_orientation_noise_std, 0.01);
+    config.velocity_noise_std = pose3_inertial_eskf_detail::positiveOr(config.velocity_noise_std, 0.05);
     config.gyro_bias_random_walk_std =
         pose3_inertial_eskf_detail::nonNegativeOr(config.gyro_bias_random_walk_std, 1.0e-4);
     config.accel_bias_random_walk_std =
@@ -140,6 +157,8 @@ inline void normalize(Pose3InertialEskfConfig& config) {
     config.innovation_position_gate_m = pose3_inertial_eskf_detail::positiveOr(config.innovation_position_gate_m, 1.5);
     config.innovation_orientation_gate_rad =
         pose3_inertial_eskf_detail::positiveOr(config.innovation_orientation_gate_rad, 0.8);
+    config.velocity_innovation_gate_mps =
+        pose3_inertial_eskf_detail::positiveOr(config.velocity_innovation_gate_mps, 3.0);
     config.pose_nis_gate = pose3_inertial_eskf_detail::positiveOr(config.pose_nis_gate, 22.5);
     config.covariance_high_threshold = pose3_inertial_eskf_detail::positiveOr(config.covariance_high_threshold, 100.0);
     config.max_propagation_dt_s = pose3_inertial_eskf_detail::positiveOr(config.max_propagation_dt_s, 0.01);
@@ -186,6 +205,14 @@ class Pose3InertialEskf {
         PoseFusionRejectReason reject_reason{PoseFusionRejectReason::kNone};
     };
 
+    struct VelocityUpdateResult {
+        bool accepted{false};
+        bool innovation_rejected{false};
+        bool time_alignment_rejected{false};
+        double velocity_innovation_norm{0.0};
+        PoseFusionRejectReason reject_reason{PoseFusionRejectReason::kNone};
+    };
+
     Pose3InertialEskf() { reset(); }
 
     void setConfig(const Pose3InertialEskfConfig& config) {
@@ -201,12 +228,15 @@ class Pose3InertialEskf {
         resetCovariance();
         corrected_body_pose_ = Pose3{};
         raw_projected_body_pose_ = Pose3{};
+        last_raw_body_measurement_pose_ = Pose3{};
         has_corrected_body_pose_ = false;
         has_raw_projected_body_pose_ = false;
+        has_last_raw_body_measurement_pose_ = false;
         last_inertial_ = InertialSample{};
         has_last_inertial_ = false;
         vrpn_health_.reset();
         last_fused_pose_stamp_sec_ = 0.0;
+        last_raw_pose_measurement_stamp_sec_ = 0.0;
     }
 
     void initializeFromPose(const PoseMeasurement& pose, const InertialSample* inertial = nullptr) {
@@ -239,6 +269,7 @@ class Pose3InertialEskf {
         state_.initialized = true;
         corrected_body_pose_ = bodyPoseFromState(state_);
         raw_projected_body_pose_ = body_world;
+        rememberRawPoseMeasurement(body_world, pose.stamp_sec);
         has_corrected_body_pose_ = true;
         has_raw_projected_body_pose_ = true;
         vrpn_health_.reset();
@@ -307,7 +338,7 @@ class Pose3InertialEskf {
             return result;
         }
         if (pose.stamp_sec > state_.last_inertial_stamp_sec + kMinDt) {
-            if (!has_last_inertial_ || !propagateToStamp(last_inertial_, pose.stamp_sec)) {
+            if (!propagateMeasurementToStamp(pose.stamp_sec)) {
                 result.time_alignment_rejected = true;
                 result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
                 vrpn_health_.recordRejected();
@@ -316,6 +347,35 @@ class Pose3InertialEskf {
             }
         }
         return updatePoseAtCurrentState(pose);
+    }
+
+    VelocityUpdateResult updateVelocity(const VelocityMeasurement& velocity) {
+        VelocityUpdateResult result;
+        if (!pose3_inertial_eskf_detail::validVelocityMeasurement(velocity)) {
+            result.reject_reason = PoseFusionRejectReason::kInvalidInput;
+            return result;
+        }
+        if (velocity.time_jump) {
+            result.time_alignment_rejected = true;
+            result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
+            return result;
+        }
+        if (!state_.initialized) {
+            return result;
+        }
+        if (velocity.stamp_sec + kMinDt < state_.last_inertial_stamp_sec) {
+            result.time_alignment_rejected = true;
+            result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
+            return result;
+        }
+        if (velocity.stamp_sec > state_.last_inertial_stamp_sec + kMinDt) {
+            if (!propagateMeasurementToStamp(velocity.stamp_sec)) {
+                result.time_alignment_rejected = true;
+                result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
+                return result;
+            }
+        }
+        return updateVelocityAtCurrentState(velocity);
     }
 
     const RigidBodyState& state() const { return state_; }
@@ -356,6 +416,8 @@ class Pose3InertialEskf {
     }
     double vrpnInnovationWindowChiSquare() const { return vrpn_health_.chiSquareWindowSum(); }
     double lastFusedPoseStampS() const { return last_fused_pose_stamp_sec_; }
+    std::size_t vrpnConsecutiveRejects() const { return vrpn_health_.consecutiveRejects(); }
+    std::size_t vrpnConsecutiveAccepts() const { return vrpn_health_.consecutiveAccepts(); }
 
   private:
     PoseUpdateResult updatePoseAtCurrentState(const PoseMeasurement& pose) {
@@ -373,18 +435,24 @@ class Pose3InertialEskf {
         }
 
         const Pose3 marker_world = markerPoseInWorld(pose.pose);
-        const Pose3 predicted_marker = predictedMarkerPose(state_);
-        const MeasurementVector innovation = measurementResidual(predicted_marker, marker_world);
-        result.position_innovation_norm = innovation.head<3>().norm();
-        result.orientation_innovation_norm = innovation.tail<3>().norm();
-        if (result.position_innovation_norm > config_.innovation_position_gate_m ||
-            result.orientation_innovation_norm > config_.innovation_orientation_gate_rad) {
+        const Pose3 measured_body_world = bodyPoseFromMarkerPose(marker_world, state_.body_to_marker);
+        if (rawPoseMeasurementJumped(measured_body_world)) {
             result.innovation_rejected = true;
             result.reject_reason = PoseFusionRejectReason::kInnovationGate;
             state_.last_pose_stamp_sec = pose.stamp_sec;
             vrpn_health_.recordRejected();
             stampResultHealth(result);
             return result;
+        }
+
+        const Pose3 predicted_marker = predictedMarkerPose(state_);
+        const MeasurementVector innovation = measurementResidual(predicted_marker, marker_world);
+        result.position_innovation_norm = innovation.head<3>().norm();
+        result.orientation_innovation_norm = innovation.tail<3>().norm();
+        const bool needs_pose_recapture = result.position_innovation_norm > config_.innovation_position_gate_m ||
+                                          result.orientation_innovation_norm > config_.innovation_orientation_gate_rad;
+        if (needs_pose_recapture) {
+            inflatePoseRecaptureCovariance();
         }
 
         const MeasurementMatrix H = measurementJacobian(predicted_marker, innovation);
@@ -406,20 +474,9 @@ class Pose3InertialEskf {
             stampResultHealth(result);
             return result;
         }
-        if (result.mahalanobis_distance > config_.pose_nis_gate) {
-            result.innovation_rejected = true;
-            result.reject_reason = PoseFusionRejectReason::kInnovationGate;
-            state_.last_pose_stamp_sec = pose.stamp_sec;
-            vrpn_health_.recordRejected();
-            stampResultHealth(result);
-            return result;
-        }
-        if (vrpn_health_.state() == VrpnObservationState::kFault) {
-            vrpn_health_.recordRecoveryCandidate();
-            result.reject_reason = PoseFusionRejectReason::kVrpnFault;
-            stampResultHealth(result);
-            return result;
-        }
+        // Treat NIS as a health metric. Hard rejection is reserved for absolute
+        // position/orientation gates so model-lag during agile flight cannot
+        // permanently switch the estimator to IMU-only.
         vrpn_health_.recordAccepted(result.mahalanobis_distance);
 
         const Eigen::Matrix<double, kErrorStateDim, 6> K =
@@ -434,6 +491,7 @@ class Pose3InertialEskf {
             return result;
         }
         injectError(delta);
+        refreshDerivedInertialState();
 
         const ErrorCovariance identity = ErrorCovariance::Identity();
         covariance_ = (identity - K * H) * covariance_ * (identity - K * H).transpose() + K * R * K.transpose();
@@ -441,12 +499,68 @@ class Pose3InertialEskf {
         state_.last_pose_stamp_sec = pose.stamp_sec;
         state_.covariance_trace = covariance_.trace();
         corrected_body_pose_ = bodyPoseFromState(state_);
-        raw_projected_body_pose_ = bodyPoseFromMarkerPose(marker_world, state_.body_to_marker);
+        raw_projected_body_pose_ = measured_body_world;
+        rememberRawPoseMeasurement(measured_body_world, pose.stamp_sec);
         has_corrected_body_pose_ = true;
         has_raw_projected_body_pose_ = true;
         last_fused_pose_stamp_sec_ = pose.stamp_sec;
         result.accepted = true;
         stampResultHealth(result);
+        return result;
+    }
+
+    VelocityUpdateResult updateVelocityAtCurrentState(const VelocityMeasurement& velocity) {
+        VelocityUpdateResult result;
+        if (!pose3_inertial_eskf_detail::validVelocityMeasurement(velocity)) {
+            result.reject_reason = PoseFusionRejectReason::kInvalidInput;
+            return result;
+        }
+        if (!state_.initialized) {
+            return result;
+        }
+
+        const Eigen::Vector3d innovation = state_.velocity - velocity.velocity;
+        result.velocity_innovation_norm = innovation.norm();
+        if (!std::isfinite(result.velocity_innovation_norm)) {
+            result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
+            return result;
+        }
+        if (result.velocity_innovation_norm > config_.velocity_innovation_gate_mps) {
+            result.innovation_rejected = true;
+            result.reject_reason = PoseFusionRejectReason::kInnovationGate;
+            return result;
+        }
+
+        Eigen::Matrix<double, 3, kErrorStateDim> H;
+        H.setZero();
+        H.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity();
+
+        Eigen::Matrix3d R = Eigen::Matrix3d::Identity() * config_.velocity_noise_std * config_.velocity_noise_std;
+        const Eigen::Matrix3d S = H * covariance_ * H.transpose() + R;
+        Eigen::LDLT<Eigen::Matrix3d> ldlt;
+        ldlt.compute(S);
+        if (ldlt.info() != Eigen::Success || !S.allFinite()) {
+            result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
+            return result;
+        }
+
+        const Eigen::Matrix<double, kErrorStateDim, 3> K =
+            covariance_ * H.transpose() * ldlt.solve(Eigen::Matrix3d::Identity());
+        const ErrorVector delta = -K * innovation;
+        if (!delta.allFinite()) {
+            result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
+            return result;
+        }
+        injectError(delta);
+        refreshDerivedInertialState();
+
+        const ErrorCovariance identity = ErrorCovariance::Identity();
+        covariance_ = (identity - K * H) * covariance_ * (identity - K * H).transpose() + K * R * K.transpose();
+        covariance_ = 0.5 * (covariance_ + covariance_.transpose());
+        state_.covariance_trace = covariance_.trace();
+        corrected_body_pose_ = bodyPoseFromState(state_);
+        has_corrected_body_pose_ = true;
+        result.accepted = true;
         return result;
     }
 
@@ -458,6 +572,42 @@ class Pose3InertialEskf {
         covariance_.block<3, 3>(9, 9).diagonal().setConstant(config_.initial_gyro_bias_variance);
         covariance_.block<3, 3>(12, 12).diagonal().setConstant(config_.initial_accel_bias_variance);
         state_.covariance_trace = covariance_.trace();
+    }
+
+    void inflatePoseRecaptureCovariance() {
+        setMinimumCovarianceDiagonal(0, config_.initial_position_variance);
+        setMinimumCovarianceDiagonal(3, config_.initial_velocity_variance);
+        setMinimumCovarianceDiagonal(6, config_.initial_orientation_variance);
+        state_.covariance_trace = covariance_.trace();
+    }
+
+    void setMinimumCovarianceDiagonal(int start_index, double minimum_variance) {
+        for (int i = 0; i < 3; ++i) {
+            double& value = covariance_(start_index + i, start_index + i);
+            if (!std::isfinite(value) || value < minimum_variance) {
+                value = minimum_variance;
+            }
+        }
+    }
+
+    void rememberRawPoseMeasurement(const Pose3& body_pose_world, double stamp_sec) {
+        last_raw_body_measurement_pose_ = body_pose_world;
+        has_last_raw_body_measurement_pose_ = true;
+        last_raw_pose_measurement_stamp_sec_ = stamp_sec;
+    }
+
+    bool rawPoseMeasurementJumped(const Pose3& body_pose_world) const {
+        if (!has_last_raw_body_measurement_pose_) {
+            return false;
+        }
+        const double position_delta = (body_pose_world.position - last_raw_body_measurement_pose_.position).norm();
+        const double orientation_delta =
+            logMap(last_raw_body_measurement_pose_.orientation.conjugate() * body_pose_world.orientation).norm();
+        if (!std::isfinite(position_delta) || !std::isfinite(orientation_delta)) {
+            return true;
+        }
+        return position_delta > config_.innovation_position_gate_m ||
+               orientation_delta > config_.innovation_orientation_gate_rad;
     }
 
     Pose3 markerPoseInWorld(const Pose3& raw_marker_pose) const {
@@ -572,6 +722,27 @@ class Pose3InertialEskf {
         integrateInertialStepWithReadings(inertial.angular_velocity, inertial.linear_acceleration, dt);
     }
 
+    void refreshDerivedInertialState() {
+        if (!has_last_inertial_ || !pose3_inertial_eskf_detail::validInertialSample(last_inertial_)) {
+            return;
+        }
+        state_.angular_velocity = last_inertial_.angular_velocity - state_.gyro_bias;
+        state_.linear_acceleration =
+            state_.orientation.toRotationMatrix() * (last_inertial_.linear_acceleration - state_.accel_bias) +
+            state_.gravity;
+    }
+
+    bool propagateMeasurementToStamp(double target_stamp_sec) {
+        if (!has_last_inertial_ || !pose3_inertial_eskf_detail::validInertialSample(last_inertial_)) {
+            return false;
+        }
+        const double allowed_extrapolation = std::max(3.0 * config_.max_propagation_dt_s, kMinDt);
+        if (target_stamp_sec > state_.last_inertial_stamp_sec + allowed_extrapolation) {
+            return false;
+        }
+        return propagateToStamp(last_inertial_, target_stamp_sec);
+    }
+
     void integrateInertialStepMidpoint(const InertialSample& previous, const InertialSample& current, double dt) {
         integrateInertialStepWithReadings(0.5 * (previous.angular_velocity + current.angular_velocity),
                                           0.5 * (previous.linear_acceleration + current.linear_acceleration), dt);
@@ -590,6 +761,7 @@ class Pose3InertialEskf {
         }
         // Snap to the requested timestamp after segmented integration to avoid accumulating sub-kMinDt drift.
         state_.last_inertial_stamp_sec = target_stamp_sec;
+        refreshDerivedInertialState();
         state_.covariance_trace = covariance_.trace();
         corrected_body_pose_ = bodyPoseFromState(state_);
         has_corrected_body_pose_ = true;
@@ -645,6 +817,7 @@ class Pose3InertialEskf {
             last_inertial_ = next_inertial;
         }
         state_.last_inertial_stamp_sec = target_stamp_sec;
+        refreshDerivedInertialState();
         state_.covariance_trace = covariance_.trace();
         corrected_body_pose_ = bodyPoseFromState(state_);
         has_corrected_body_pose_ = true;
@@ -664,12 +837,15 @@ class Pose3InertialEskf {
     ErrorCovariance covariance_{ErrorCovariance::Identity()};
     Pose3 corrected_body_pose_{};
     Pose3 raw_projected_body_pose_{};
+    Pose3 last_raw_body_measurement_pose_{};
     bool has_corrected_body_pose_{false};
     bool has_raw_projected_body_pose_{false};
+    bool has_last_raw_body_measurement_pose_{false};
     InertialSample last_inertial_{};
     bool has_last_inertial_{false};
     ObservationHealthTracker vrpn_health_{};
     double last_fused_pose_stamp_sec_{0.0};
+    double last_raw_pose_measurement_stamp_sec_{0.0};
 
     friend struct Pose3InertialEskfTestAccess;
 };
