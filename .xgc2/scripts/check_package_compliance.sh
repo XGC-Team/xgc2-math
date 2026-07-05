@@ -45,6 +45,7 @@ required_files=(
   include/xgc2_math/algebra.hpp
   include/xgc2_math/algebra/angle.hpp
   include/xgc2_math/utils/status.hpp
+  include/xgc2_math/utils/sample_timing.hpp
   include/xgc2_math/utils/time_delta.hpp
   include/xgc2_math/geometry/se3.hpp
   include/xgc2_math/geometry/occupied_sets/sphere_set.h

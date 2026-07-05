@@ -265,6 +265,25 @@ void testTimeDeltaGuard() {
     expect(std::fabs(sample.dt_s - 0.08) < 1.0e-12);
 }
 
+void testSampleTimingPredicates() {
+    expect(!xgc2_math::sampleStale(10.0, 9.9, 0.2));
+    expect(xgc2_math::sampleStale(10.0, 9.7, 0.2));
+    expect(xgc2_math::sampleStale(std::numeric_limits<double>::quiet_NaN(), 9.7, 0.2));
+    expect(xgc2_math::sampleStale(10.0, 9.7, std::numeric_limits<double>::quiet_NaN()));
+
+    expect(!xgc2_math::sampleRateLow(false, 1.0, 5.0));
+    expect(!xgc2_math::sampleRateLow(true, 0.0, 5.0));
+    expect(!xgc2_math::sampleRateLow(true, 1.0, 0.0));
+    expect(!xgc2_math::sampleRateLow(true, 0.1, 5.0));
+    expect(xgc2_math::sampleRateLow(true, 0.3, 5.0));
+
+    expect(!xgc2_math::sampleTimeJumped(10.0, 10.0, 0.01));
+    expect(xgc2_math::sampleTimeJumped(10.0, 10.2, 0.01));
+    expect(xgc2_math::sampleTimeJumped(10.0, 10.0, -0.1));
+    expect(!xgc2_math::sampleTimeJumped(10.0, 10.0, -0.01));
+    expect(xgc2_math::sampleTimeJumped(std::numeric_limits<double>::quiet_NaN(), 10.0, 0.01));
+}
+
 void testOptionNormalization() {
     xgc2_math::DifferentiatorOptions bad_diff_options;
     bad_diff_options.min_dt_s = -1.0;
@@ -1397,6 +1416,7 @@ int main() {
     testSlewRateLimiter();
     testStatusHelpers();
     testTimeDeltaGuard();
+    testSampleTimingPredicates();
     testOptionNormalization();
     testDifferentiator();
     testAngleUtilitiesAndDifferentiator();

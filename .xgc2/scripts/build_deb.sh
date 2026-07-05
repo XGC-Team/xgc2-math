@@ -139,6 +139,7 @@ copy_path "${stage_dir}/usr/share/doc/libxgc2-math-dev/matlab" "${pkg_dir}/${met
 test -f "${pkg_dir}/${algebra_pkg}/usr/include/xgc2_math/algebra.hpp"
 test -f "${pkg_dir}/${algebra_pkg}/usr/include/xgc2_math/algebra/angle.hpp"
 test -f "${pkg_dir}/${utils_pkg}/usr/include/xgc2_math/utils/status.hpp"
+test -f "${pkg_dir}/${utils_pkg}/usr/include/xgc2_math/utils/sample_timing.hpp"
 test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/se2.hpp"
 test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/occupied_sets/sphere_set.h"
 test -f "${pkg_dir}/${filter_pkg}/usr/include/xgc2_math/filter/exponential_filter.hpp"

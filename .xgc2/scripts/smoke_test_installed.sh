@@ -17,6 +17,7 @@ test -f /usr/include/xgc2_math/math.hpp
 test -f /usr/include/xgc2_math/types.hpp
 test -f /usr/include/xgc2_math/algebra.hpp
 test -f /usr/include/xgc2_math/algebra/angle.hpp
+test -f /usr/include/xgc2_math/utils/sample_timing.hpp
 test -f /usr/include/xgc2_math/geometry/se2.hpp
 test -f /usr/include/xgc2_math/geometry/se3.hpp
 test -f /usr/include/xgc2_math/geometry/occupied_sets/sphere_set.h
@@ -75,6 +76,9 @@ int main()
 
   const auto dt0 = dt_guard.update(1.0);
   const auto dt1 = dt_guard.update(1.01);
+  const bool stale = xgc2_math::sampleStale(2.0, 1.0, 0.5);
+  const bool low_rate = xgc2_math::sampleRateLow(true, 1.0, 5.0);
+  const bool jumped = xgc2_math::sampleTimeJumped(1.0, 1.2, 0.01);
   const double filtered = filter.filter(1.0, 0.01);
   const double smoothed = smoother.filter(filtered, 0.01);
   const auto derivative = diff.update(smoothed, dt1.dt_s);
@@ -101,6 +105,9 @@ int main()
   const auto se2_u = xgc2_math::control::packControl(se2_control);
 
   return !dt0.accepted && dt1.accepted &&
+         stale &&
+         low_rate &&
+         jumped &&
          derivative.measurement_accepted &&
          yaw_derivative.measurement_accepted &&
          estimate.measurement_accepted &&
