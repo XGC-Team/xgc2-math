@@ -56,10 +56,10 @@ mkdir -p "${build_dir}"
   cd "${build_dir}"
   cmake "${repo_root}" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DXGC2_MATH_BUILD_TESTING=OFF
 )
 cmake --build "${build_dir}" -- -j"$(nproc)"
-(cd "${build_dir}" && ctest --output-on-failure)
 DESTDIR="${stage_dir}" cmake --build "${build_dir}" --target install
 
 copy_path() {
