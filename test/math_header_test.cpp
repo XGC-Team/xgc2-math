@@ -1319,6 +1319,24 @@ void testTrajectoryAndNmpcProblemContracts() {
         }
     }
 
+    xgc2_math::trajectory::Se2TargetTrajectoryOptions2 physical_options = se2_options;
+    physical_options.max_velocity = 1.5;
+    physical_options.max_acceleration = 2.0;
+    physical_options.max_yaw_rate = 0.5235;
+    physical_options.max_iterations = 80;
+    xgc2_math::trajectory::Se2TargetTrajectoryResult2 physical_result;
+    expect(
+        xgc2_math::trajectory::Se2MincoTargetPlanner2().plan(se2_start, se2_target, physical_options, physical_result));
+    expect(!physical_result.samples.empty());
+    expect((physical_result.flags &
+            (xgc2_math::trajectory::kFlagVelocityLimit | xgc2_math::trajectory::kFlagAccelerationLimit |
+             xgc2_math::trajectory::kFlagYawRateLimit)) == 0U);
+    for (const auto& sample : physical_result.samples) {
+        expect(std::abs(sample.reference.speed) <= physical_options.max_velocity + 1.0e-6);
+        expect(std::abs(sample.reference.linear_acceleration) <= physical_options.max_acceleration + 1.0e-6);
+        expect(std::abs(sample.reference.yaw_rate) <= physical_options.max_yaw_rate + 1.0e-6);
+    }
+
     xgc2_math::trajectory::Se2TargetState2 yaw_target = se2_start;
     yaw_target.yaw = 1.2;
     xgc2_math::trajectory::Se2TargetTrajectoryResult2 yaw_result;

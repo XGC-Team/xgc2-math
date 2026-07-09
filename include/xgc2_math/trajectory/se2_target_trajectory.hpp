@@ -143,7 +143,21 @@ inline uint32_t validateSamples(const std::vector<SampledPoint2>& samples, const
     if (!evaluator.setSamples(samples)) {
         return kFlagInvalidInput;
     }
-    return TrajectoryValidator2::validate(evaluator, TrajectoryLimits2{}, options.validation_sample_dt);
+    TrajectoryLimits2 limits;
+    limits.max_velocity = options.max_velocity;
+    limits.max_acceleration = options.max_acceleration;
+    limits.max_yaw_rate = options.max_yaw_rate;
+    uint32_t flags = kFlagNone;
+    for (const auto& sample : samples) {
+        if (!TrajectoryValidator2::finite(sample.reference)) {
+            flags |= kFlagNonFinite;
+            continue;
+        }
+        flags |= trajectory2_detail::limitFlags(sample.reference, limits);
+    }
+    const double validation_dt =
+        std::min(positiveLimit(options.sample_dt, 0.01), positiveLimit(options.validation_sample_dt, 0.02));
+    return flags | TrajectoryValidator2::validate(evaluator, limits, validation_dt);
 }
 
 inline void appendHold(const Se2TargetState2& state, double start_t, double duration, double sample_dt,
@@ -531,7 +545,9 @@ inline bool Se2MincoTargetPlanner2::plan(const Se2TargetState2& start, const Se2
         Se2TargetState2 hold = target;
         appendHold(hold, samples.back().t, options.hold_duration, dt, samples);
         const uint32_t validation_flags = validateSamples(samples, local_options);
-        if ((validation_flags & (kFlagInvalidInput | kFlagNonFinite)) == 0U) {
+        constexpr uint32_t kHardLimitFlags =
+            kFlagInvalidInput | kFlagNonFinite | kFlagVelocityLimit | kFlagAccelerationLimit | kFlagYawRateLimit;
+        if ((validation_flags & kHardLimitFlags) == 0U) {
             result.samples = std::move(samples);
             result.flags |= validation_flags;
             valid = true;
