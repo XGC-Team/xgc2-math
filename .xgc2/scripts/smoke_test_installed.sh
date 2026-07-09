@@ -40,7 +40,7 @@ probe_dir="${XGC2_MATH_SMOKE_DIR:-$(mktemp -d -t xgc2-math-smoke-XXXXXX)}"
 mkdir -p "${probe_dir}"
 
 cat > "${probe_dir}/CMakeLists.txt" <<'CMAKE'
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.10)
 project(xgc2_math_probe LANGUAGES CXX)
 
 find_package(xgc2_math REQUIRED CONFIG)

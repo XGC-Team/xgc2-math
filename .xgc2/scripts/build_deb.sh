@@ -9,11 +9,39 @@ product_version() {
   awk -F': *' '/^version:[[:space:]]*/ {print $2; exit}' "${repo_root}/.xgc2/product.yml"
 }
 
-version="${PACKAGE_VERSION:-$(product_version)}"
-if [[ -z "${version}" ]]; then
-  echo "package version is missing; set PACKAGE_VERSION or .xgc2/product.yml version" >&2
+package_base_version="${PACKAGE_BASE_VERSION:-$(product_version)}"
+package_distribution="${PACKAGE_DISTRIBUTION:-${APT_REPO_DISTRIBUTION:-}}"
+if [[ -z "${package_base_version}" ]]; then
+  echo "package version is missing; set PACKAGE_BASE_VERSION or .xgc2/product.yml version" >&2
   exit 1
 fi
+
+if [[ -z "${package_distribution}" && -r /etc/os-release ]]; then
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  package_distribution="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+fi
+
+if [[ -n "${PACKAGE_VERSION:-}" ]]; then
+  version="${PACKAGE_VERSION}"
+else
+  if [[ -z "${package_distribution}" ]]; then
+    echo "PACKAGE_DISTRIBUTION or VERSION_CODENAME is required for Debian package versioning" >&2
+    exit 1
+  fi
+  version="${package_base_version}~${package_distribution}"
+fi
+
+if [[ -n "${package_distribution}" && "${ALLOW_UNSCOPED_DEB_VERSION:-0}" != "1" ]]; then
+  case "${version}" in
+    *"~${package_distribution}"*|*"+"${package_distribution}*) ;;
+    *)
+      echo "Debian package version '${version}' must include distribution suffix '${package_distribution}'" >&2
+      exit 1
+      ;;
+  esac
+fi
+
 build_dir="${XGC2_MATH_BUILD_DIR:-${repo_root}/.ci/build}"
 stage_dir="${XGC2_MATH_STAGE_DIR:-${repo_root}/.ci/stage}"
 output_dir="${XGC2_MATH_DEB_OUTPUT_DIR:-${repo_root}/.ci/debs}"
@@ -70,7 +98,11 @@ build_package() {
   dpkg-deb -I "${output_dir}/${package_name}_${version}_${arch}.deb"
 }
 
-base_depends="libeigen3-dev, libc6, libgcc-s1, libstdc++6"
+gcc_runtime_dep="libgcc-s1"
+if [[ "${package_distribution}" == "bionic" ]]; then
+  gcc_runtime_dep="libgcc1"
+fi
+base_depends="libeigen3-dev, libc6, ${gcc_runtime_dep}, libstdc++6"
 
 algebra_pkg="libxgc2-math-algebra-dev"
 write_control "${algebra_pkg}" "${base_depends}" "XGC2 math algebra headers"

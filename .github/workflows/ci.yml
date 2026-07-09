@@ -58,6 +58,18 @@ jobs:
 
   deb-build-and-smoke:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: ubuntu:18.04
+            distribution: bionic
+          - image: ubuntu:20.04
+            distribution: focal
+          - image: ubuntu:22.04
+            distribution: jammy
+          - image: ubuntu:24.04
+            distribution: noble
     defaults:
       run:
         shell: bash
@@ -69,9 +81,10 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm \
+            -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
             -v "${GITHUB_WORKSPACE}:/work" \
             -w /work \
-            ubuntu:20.04 \
+            "${{ matrix.image }}" \
             bash -lc '
               set -euo pipefail
               export DEBIAN_FRONTEND=noninteractive
@@ -96,5 +109,5 @@ jobs:
       - name: Upload deb artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: libxgc2-math-dev-all
+          name: libxgc2-math-dev-${{ matrix.distribution }}-all
           path: .ci/debs/*.deb

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.10)
 project(xgc2_math VERSION 0.5.6 LANGUAGES CXX)
 
 include(GNUInstallDirs)
