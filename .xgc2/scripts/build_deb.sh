@@ -57,6 +57,7 @@ mkdir -p "${build_dir}"
   cmake "${repo_root}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_INSTALL_LIBDIR=lib \
     -DXGC2_MATH_BUILD_TESTING=OFF
 )
 cmake --build "${build_dir}" -- -j"$(nproc)"
