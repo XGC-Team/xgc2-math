@@ -10,7 +10,7 @@ product_version() {
 }
 
 package_base_version="${PACKAGE_BASE_VERSION:-$(product_version)}"
-package_distribution="${PACKAGE_DISTRIBUTION:-${APT_REPO_DISTRIBUTION:-}}"
+package_distribution="${PACKAGE_DISTRIBUTION:-}"
 if [[ -z "${package_base_version}" ]]; then
   echo "package version is missing; set PACKAGE_BASE_VERSION or .xgc2/product.yml version" >&2
   exit 1
@@ -44,7 +44,7 @@ fi
 
 build_dir="${XGC2_MATH_BUILD_DIR:-${repo_root}/.ci/build}"
 stage_dir="${XGC2_MATH_STAGE_DIR:-${repo_root}/.ci/stage}"
-output_dir="${XGC2_MATH_DEB_OUTPUT_DIR:-${repo_root}/.ci/debs}"
+output_dir="${XGC2_MATH_DEB_OUTPUT_DIR:-${repo_root}/debs}"
 pkg_dir="${repo_root}/.ci/pkg"
 arch="all"
 
