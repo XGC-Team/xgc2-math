@@ -104,6 +104,7 @@ jobs:
       - name: Build deb and run installed smoke test
         run: |
           set -euo pipefail
+          install -d .ci/build-manifests
           docker run --rm \
             -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
             -v "${GITHUB_WORKSPACE}:/work" \
