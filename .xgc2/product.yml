@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: libxgc2-math-dev
 name: XGC2 Math
-version: 0.5.6-3
+version: 0.5.6-4
 kind: toolchain-apt
 summary: Header-only C++ math library for XGC2 geometry, filters, observers, estimators,
   and control utilities.
@@ -52,7 +52,7 @@ ownership:
   - /usr/lib/cmake/xgc2_math
 release:
   apt_versions:
-    bionic: 0.5.6-2~bionic
-    focal: 0.5.6-2~focal
-    jammy: 0.5.6-2~jammy
-    noble: 0.5.6-2~noble
+    bionic: 0.5.6-4~bionic
+    focal: 0.5.6-4~focal
+    jammy: 0.5.6-4~jammy
+    noble: 0.5.6-4~noble
