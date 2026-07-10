@@ -169,36 +169,16 @@ jobs:
         include:
           - image: ubuntu:18.04
             distribution: bionic
-            arch: amd64
-            runner: ubuntu-latest
-          - image: ubuntu:18.04
-            distribution: bionic
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - image: ubuntu:20.04
-            distribution: focal
-            arch: amd64
             runner: ubuntu-latest
           - image: ubuntu:20.04
             distribution: focal
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - image: ubuntu:22.04
-            distribution: jammy
-            arch: amd64
             runner: ubuntu-latest
           - image: ubuntu:22.04
             distribution: jammy
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - image: ubuntu:24.04
-            distribution: noble
-            arch: amd64
             runner: ubuntu-latest
           - image: ubuntu:24.04
             distribution: noble
-            arch: arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-latest
     defaults:
       run:
         shell: bash
@@ -239,23 +219,25 @@ jobs:
 
       - name: Create release-train build manifest
         run: |
-          python3 .xgc2/scripts/xgc2_artifact_manifest.py build \
-            --deb-dir debs \
-            --output-dir .ci/build-manifests \
-            --product libxgc2-math-dev \
-            --product-version "${{ inputs.expected_version }}" \
-            --distribution "${{ matrix.distribution }}" \
-            --architecture "${{ matrix.arch }}" \
-            --source-sha "${{ inputs.expected_source_sha }}" \
-            --ci-run-id "$GITHUB_RUN_ID" \
-            --ci-workflow "$GITHUB_WORKFLOW" \
-            --ci-workflow-ref "$GITHUB_WORKFLOW_REF"
+          for architecture in amd64 arm64; do
+            python3 .xgc2/scripts/xgc2_artifact_manifest.py build \
+              --deb-dir debs \
+              --output-dir .ci/build-manifests \
+              --product libxgc2-math-dev \
+              --product-version "${{ inputs.expected_version }}" \
+              --distribution "${{ matrix.distribution }}" \
+              --architecture "$architecture" \
+              --source-sha "${{ inputs.expected_source_sha }}" \
+              --ci-run-id "$GITHUB_RUN_ID" \
+              --ci-workflow "$GITHUB_WORKFLOW" \
+              --ci-workflow-ref "$GITHUB_WORKFLOW_REF"
+          done
 
       - name: Upload deb artifacts
         if: ${{ inputs.prepare_action == 'release' }}
         uses: actions/upload-artifact@v4
         with:
-          name: libxgc2-math-dev-${{ matrix.distribution }}-${{ matrix.arch }}
+          name: libxgc2-math-dev-${{ matrix.distribution }}-all
           path: |
             debs/*.deb
             .ci/build-manifests/*.json
