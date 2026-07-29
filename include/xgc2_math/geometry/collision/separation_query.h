@@ -2,6 +2,7 @@
 #define XGC2_MATH_GEOMETRY_COLLISION_SEPARATION_QUERY_H
 
 #include <Eigen/Dense>
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -113,6 +114,23 @@ inline void reduceToTriangle(Simplex& simplex, std::size_t idx0, std::size_t idx
     simplex.updateClosest();
 }
 
+inline bool numericallySameVector(
+    const Eigen::Vector3d& lhs, const Eigen::Vector3d& rhs) {
+    const double scale = std::max(lhs.norm(), rhs.norm());
+    if (scale == 0.0) {
+        return (lhs.array() == rhs.array()).all();
+    }
+    return (lhs - rhs).norm() <=
+           64.0 * std::numeric_limits<double>::epsilon() * scale;
+}
+
+inline long double dot3LongDouble(
+    const Eigen::Vector3d& lhs, const Eigen::Vector3d& rhs) {
+    return static_cast<long double>(lhs.x()) * rhs.x() +
+           static_cast<long double>(lhs.y()) * rhs.y() +
+           static_cast<long double>(lhs.z()) * rhs.z();
+}
+
 inline void deduplicateVertices(Simplex& simplex) {
     if (simplex.count <= 1) {
         return;
@@ -120,9 +138,12 @@ inline void deduplicateVertices(Simplex& simplex) {
 
     for (std::size_t i = 0; i < simplex.count; ++i) {
         for (std::size_t j = i + 1; j < simplex.count;) {
-            if ((simplex.vertices[i].w - simplex.vertices[j].w).squaredNorm() <= 1e-12 &&
-                (simplex.vertices[i].a - simplex.vertices[j].a).squaredNorm() <= 1e-12 &&
-                (simplex.vertices[i].b - simplex.vertices[j].b).squaredNorm() <= 1e-12) {
+            if (numericallySameVector(
+                    simplex.vertices[i].w, simplex.vertices[j].w) &&
+                numericallySameVector(
+                    simplex.vertices[i].a, simplex.vertices[j].a) &&
+                numericallySameVector(
+                    simplex.vertices[i].b, simplex.vertices[j].b)) {
                 simplex.vertices[i].weight += simplex.vertices[j].weight;
                 for (std::size_t k = j; k + 1 < simplex.count; ++k) {
                     simplex.vertices[k] = simplex.vertices[k + 1];
@@ -138,7 +159,7 @@ inline void deduplicateVertices(Simplex& simplex) {
     for (std::size_t i = 0; i < simplex.count; ++i) {
         weight_sum += simplex.vertices[i].weight;
     }
-    if (weight_sum > 1e-12) {
+    if (weight_sum > 0.0) {
         for (std::size_t i = 0; i < simplex.count; ++i) {
             simplex.vertices[i].weight /= weight_sum;
         }
@@ -148,9 +169,9 @@ inline void deduplicateVertices(Simplex& simplex) {
 
 inline bool hasEquivalentVertex(const Simplex& simplex, const Vertex& candidate) {
     for (std::size_t i = 0; i < simplex.count; ++i) {
-        if ((simplex.vertices[i].w - candidate.w).squaredNorm() <= 1e-12 &&
-            (simplex.vertices[i].a - candidate.a).squaredNorm() <= 1e-12 &&
-            (simplex.vertices[i].b - candidate.b).squaredNorm() <= 1e-12) {
+        if (numericallySameVector(simplex.vertices[i].w, candidate.w) &&
+            numericallySameVector(simplex.vertices[i].a, candidate.a) &&
+            numericallySameVector(simplex.vertices[i].b, candidate.b)) {
             return true;
         }
     }
@@ -161,13 +182,15 @@ inline void solveSegment(Simplex& simplex) {
     const Eigen::Vector3d& a = simplex.vertices[0].w;
     const Eigen::Vector3d& b = simplex.vertices[1].w;
     const Eigen::Vector3d ab = b - a;
-    const double denom = ab.squaredNorm();
-    if (denom <= 1e-12) {
+    const long double denom = dot3LongDouble(ab, ab);
+    if (denom == 0.0L) {
         reduceToVertex(simplex, 0);
         return;
     }
 
-    const double t = math_helpers::clamp(-a.dot(ab) / denom, 0.0, 1.0);
+    const long double raw_t = -dot3LongDouble(a, ab) / denom;
+    const double t = static_cast<double>(
+        std::max(0.0L, std::min(1.0L, raw_t)));
     if (t <= 0.0) {
         reduceToVertex(simplex, 0);
         return;
@@ -188,71 +211,120 @@ inline void solveTriangle(Simplex& simplex) {
     const Eigen::Vector3d ac = c - a;
     const Eigen::Vector3d ap = -a;
 
-    const double d1 = ab.dot(ap);
-    const double d2 = ac.dot(ap);
+    const long double d1 = dot3LongDouble(ab, ap);
+    const long double d2 = dot3LongDouble(ac, ap);
     if (d1 <= 0.0 && d2 <= 0.0) {
         reduceToVertex(simplex, 0);
         return;
     }
 
     const Eigen::Vector3d bp = -b;
-    const double d3 = ab.dot(bp);
-    const double d4 = ac.dot(bp);
+    const long double d3 = dot3LongDouble(ab, bp);
+    const long double d4 = dot3LongDouble(ac, bp);
     if (d3 >= 0.0 && d4 <= d3) {
         reduceToVertex(simplex, 1);
         return;
     }
 
-    const double vc = d1 * d4 - d3 * d2;
+    const long double vc = d1 * d4 - d3 * d2;
     if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
-        const double v = d1 / (d1 - d3);
+        const double v = static_cast<double>(d1 / (d1 - d3));
         reduceToSegment(simplex, 0, 1, 1.0 - v, v);
         return;
     }
 
     const Eigen::Vector3d cp = -c;
-    const double d5 = ab.dot(cp);
-    const double d6 = ac.dot(cp);
+    const long double d5 = dot3LongDouble(ab, cp);
+    const long double d6 = dot3LongDouble(ac, cp);
     if (d6 >= 0.0 && d5 <= d6) {
         reduceToVertex(simplex, 2);
         return;
     }
 
-    const double vb = d5 * d2 - d1 * d6;
+    const long double vb = d5 * d2 - d1 * d6;
     if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
-        const double w = d2 / (d2 - d6);
+        const double w = static_cast<double>(d2 / (d2 - d6));
         reduceToSegment(simplex, 0, 2, 1.0 - w, w);
         return;
     }
 
-    const double va = d3 * d6 - d5 * d4;
+    const long double va = d3 * d6 - d5 * d4;
     if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
-        const double w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        const double w = static_cast<double>(
+            (d4 - d3) / ((d4 - d3) + (d5 - d6)));
         reduceToSegment(simplex, 1, 2, 1.0 - w, w);
         return;
     }
 
-    const double denom = va + vb + vc;
-    if (std::abs(denom) <= 1e-12) {
-        reduceToVertex(simplex, 0);
+    const long double denom = va + vb + vc;
+    if (denom == 0.0L) {
+        Simplex closest_edge;
+        double closest_distance_sq =
+            std::numeric_limits<double>::infinity();
+        for (const std::array<std::size_t, 2> edge :
+             {std::array<std::size_t, 2>{0, 1},
+              std::array<std::size_t, 2>{0, 2},
+              std::array<std::size_t, 2>{1, 2}}) {
+            Simplex edge_simplex;
+            edge_simplex.count = 2;
+            edge_simplex.vertices[0] = simplex.vertices[edge[0]];
+            edge_simplex.vertices[1] = simplex.vertices[edge[1]];
+            solveSegment(edge_simplex);
+            const double distance_sq =
+                edge_simplex.closest.squaredNorm();
+            if (distance_sq < closest_distance_sq) {
+                closest_distance_sq = distance_sq;
+                closest_edge = edge_simplex;
+            }
+        }
+        simplex = closest_edge;
         return;
     }
 
-    const double v = vb / denom;
-    const double w = vc / denom;
+    const double v = static_cast<double>(vb / denom);
+    const double w = static_cast<double>(vc / denom);
     const double u = 1.0 - v - w;
     reduceToTriangle(simplex, 0, 1, 2, u, v, w);
 }
 
-inline bool pointOutsideOfPlane(const Eigen::Vector3d& p, const Eigen::Vector3d& a, const Eigen::Vector3d& b,
-                                const Eigen::Vector3d& c, const Eigen::Vector3d& d) {
-    const Eigen::Vector3d normal = (b - a).cross(c - a);
-    const double sign_p = (p - a).dot(normal);
-    const double sign_d = (d - a).dot(normal);
-    if (std::abs(sign_d) <= 1e-12) {
-        return false;
-    }
-    return sign_p * sign_d < 0.0;
+inline long double orientation3d(
+    const Eigen::Vector3d& a, const Eigen::Vector3d& b,
+    const Eigen::Vector3d& c, const Eigen::Vector3d& d) {
+    const long double ab_x =
+        static_cast<long double>(b.x()) - a.x();
+    const long double ab_y =
+        static_cast<long double>(b.y()) - a.y();
+    const long double ab_z =
+        static_cast<long double>(b.z()) - a.z();
+    const long double ac_x =
+        static_cast<long double>(c.x()) - a.x();
+    const long double ac_y =
+        static_cast<long double>(c.y()) - a.y();
+    const long double ac_z =
+        static_cast<long double>(c.z()) - a.z();
+    const long double ad_x =
+        static_cast<long double>(d.x()) - a.x();
+    const long double ad_y =
+        static_cast<long double>(d.y()) - a.y();
+    const long double ad_z =
+        static_cast<long double>(d.z()) - a.z();
+    return
+        ab_x * (ac_y * ad_z - ac_z * ad_y) -
+        ab_y * (ac_x * ad_z - ac_z * ad_x) +
+        ab_z * (ac_x * ad_y - ac_y * ad_x);
+}
+
+inline int orientationSign(long double value) {
+    return value > 0.0L ? 1 : (value < 0.0L ? -1 : 0);
+}
+
+inline bool pointOutsideOfPlane(
+    const Eigen::Vector3d& p, const Eigen::Vector3d& a,
+    const Eigen::Vector3d& b, const Eigen::Vector3d& c,
+    const Eigen::Vector3d& d) {
+    const int sign_p = orientationSign(orientation3d(a, b, c, p));
+    const int sign_d = orientationSign(orientation3d(a, b, c, d));
+    return sign_p != 0 && sign_d != 0 && sign_p != sign_d;
 }
 
 inline bool solveTetrahedron(Simplex& simplex) {
@@ -293,6 +365,8 @@ inline bool solveTetrahedron(Simplex& simplex) {
 
     std::array<FaceCandidate, 4> candidates{};
     std::size_t candidate_count = 0;
+    bool reduced_degenerate_tetrahedron = false;
+    double degenerate_edge_scale = 0.0;
 
     if (pointOutsideOfPlane(origin, a, b, c, d)) {
         candidates[candidate_count++] = evaluate_face(0, 1, 2);
@@ -308,7 +382,26 @@ inline bool solveTetrahedron(Simplex& simplex) {
     }
 
     if (candidate_count == 0) {
-        return true;
+        // No face classified the origin as outside.  That proves containment
+        // only for a non-degenerate tetrahedron.  GJK support points can be
+        // coplanar even for full-dimensional sets (for example a sphere
+        // beside a box whose lower face shares z=0 with the sphere centre).
+        // Treating such a zero-volume simplex as containing the origin
+        // produces a false overlap.  Reduce a degenerate tetrahedron to its
+        // closest face instead; a genuine lower-dimensional overlap will
+        // still reduce to zero distance and be reported by the query.
+        if (orientationSign(orientation3d(a, b, c, d)) != 0) {
+            return true;
+        }
+        const double edge_scale = std::max(
+            {(b - a).norm(), (c - a).norm(), (d - a).norm(),
+             (c - b).norm(), (d - b).norm(), (d - c).norm()});
+        candidates[candidate_count++] = evaluate_face(0, 1, 2);
+        candidates[candidate_count++] = evaluate_face(0, 2, 3);
+        candidates[candidate_count++] = evaluate_face(0, 3, 1);
+        candidates[candidate_count++] = evaluate_face(1, 3, 2);
+        reduced_degenerate_tetrahedron = true;
+        degenerate_edge_scale = edge_scale;
     }
 
     std::size_t best_idx = 0;
@@ -321,6 +414,15 @@ inline bool solveTetrahedron(Simplex& simplex) {
     const FaceCandidate& best = candidates[best_idx];
     if (!best.valid || best.count == 0) {
         return true;
+    }
+    if (reduced_degenerate_tetrahedron) {
+        const double distance_tolerance =
+            64.0 * std::numeric_limits<double>::epsilon() *
+            degenerate_edge_scale;
+        if (best.dist_sq <=
+            distance_tolerance * distance_tolerance) {
+            return true;
+        }
     }
 
     if (best.count == 1) {

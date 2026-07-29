@@ -28,6 +28,13 @@ enum TrajectoryFlag : uint32_t {
     kFlagOptimizationFailure = 1U << 12U,
     kFlagLowSpeedSingularity = 1U << 13U,
     kFlagYawRateLimit = 1U << 14U,
+    // Sampled planar references may carry an explicit unicycle-equivalent
+    // yaw/signed-speed branch.  This is required when a Cartesian velocity
+    // reverses through zero: (yaw, +speed) and (yaw + pi, -speed) describe the
+    // same world velocity, but only one branch may respect a vehicle's yaw-rate
+    // limit.  Evaluators preserve the supplied planar kinematics when this flag
+    // is selected instead of deriving yaw and a non-negative speed from v_xy.
+    kFlagExplicitPlanarKinematics = 1U << 15U,
 };
 
 struct TrajectoryValidationResult {

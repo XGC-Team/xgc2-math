@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <memory>
 #include <string>
 
 #include <xgc2_math/math.hpp>
@@ -1286,6 +1287,27 @@ void testTrajectoryAndNmpcProblemContracts() {
     expect(figure_eight.evaluate(0.5, planar_ref));
     expect(xgc2_math::trajectory::TrajectoryValidator2::finite(planar_ref));
 
+    xgc2_math::trajectory::SampledPoint2 reverse_a;
+    reverse_a.t = 0.0;
+    reverse_a.reference.velocity = Eigen::Vector2d(-0.2, 0.0);
+    reverse_a.reference.yaw = 0.0;
+    reverse_a.reference.speed = -0.2;
+    reverse_a.reference.linear_acceleration = -0.1;
+    xgc2_math::trajectory::SampledPoint2 reverse_b = reverse_a;
+    reverse_b.t = 1.0;
+    reverse_b.reference.velocity = Eigen::Vector2d(-0.4, 0.0);
+    reverse_b.reference.speed = -0.4;
+    xgc2_math::trajectory::SampledEvaluator2 explicit_planar_samples;
+    expect(explicit_planar_samples.setSamples(
+        {reverse_a, reverse_b}, true));
+    xgc2_math::trajectory::PlanarReference2 reverse_midpoint;
+    expect(explicit_planar_samples.evaluate(0.5, reverse_midpoint));
+    expect(std::fabs(reverse_midpoint.yaw) < 1.0e-12);
+    expect(std::fabs(reverse_midpoint.speed + 0.3) < 1.0e-12);
+    expect(
+        explicit_planar_samples.flags() &
+        xgc2_math::trajectory::kFlagExplicitPlanarKinematics);
+
     xgc2_math::trajectory::Se2TargetState2 se2_start;
     se2_start.position = Eigen::Vector2d(0.0, 0.0);
     se2_start.yaw = 0.0;
@@ -1426,6 +1448,168 @@ void testTrajectoryAndNmpcProblemContracts() {
     expect(std::fabs(se2_u(1) - 0.7) < 1.0e-12);
 }
 
+void testDistanceGjkCoplanarSupportSimplex() {
+    // Regression from the four-Scout scene: the sphere centre and the lower
+    // face of the box both lie on z=0, but the bodies remain separated in x.
+    // A coplanar four-point simplex must be reduced to its closest face, not
+    // mistaken for a tetrahedron containing the origin.
+    const xgc2_math::SphereSet vehicle(
+        Eigen::Vector3d(6.204626539528, 2.508880552943, 0.0), 0.43);
+    const xgc2_math::BoxSet obstacle(
+        Eigen::Vector3d(7.521842, 2.974605, 0.75),
+        Eigen::Vector3d(1.0, 0.7, 1.5),
+        Eigen::Quaterniond::Identity());
+    const xgc2_math::gjk::Result separated =
+        xgc2_math::gjk::DistanceGjkQuery::query(
+            vehicle, obstacle, nullptr, 1e-6, 256, 1e-9);
+    expect(
+        separated.status ==
+        xgc2_math::gjk::Result::Status::kSuccess);
+    expect(std::isfinite(separated.separator.margin));
+    expect(std::abs(separated.separator.margin - 0.395368557967) < 1e-9);
+
+    const auto box_support = obstacle.support(Eigen::Vector3d::UnitX());
+    expect(
+        std::abs(
+            box_support.support_point.x() -
+            (obstacle.center().x() + 0.5)) < 1e-12);
+
+    const xgc2_math::BallInflatedSet planning_obstacle(
+        std::make_shared<xgc2_math::BoxSet>(obstacle), 0.27);
+    const Eigen::Vector3d inflation_direction =
+        Eigen::Vector3d(0.7, -0.2, 0.4).normalized();
+    const auto base_inflation_support =
+        obstacle.support(inflation_direction);
+    const auto inflated_support =
+        planning_obstacle.support(inflation_direction);
+    expect(
+        std::abs(
+            inflated_support.support_value -
+            base_inflation_support.support_value -
+            0.27) < 1e-12);
+
+    for (const double scale : {0.1, 10.0}) {
+        const xgc2_math::SphereSet scaled_vehicle(
+            scale * vehicle.center(), scale * 0.43);
+        const xgc2_math::BoxSet scaled_obstacle(
+            scale * obstacle.center(),
+            scale * Eigen::Vector3d(1.0, 0.7, 1.5),
+            Eigen::Quaterniond::Identity());
+        const xgc2_math::gjk::Result scaled =
+            xgc2_math::gjk::DistanceGjkQuery::query(
+                scaled_vehicle, scaled_obstacle, nullptr,
+                scale * 1e-6, 256, scale * 1e-9);
+        expect(
+            scaled.status ==
+            xgc2_math::gjk::Result::Status::kSuccess);
+        expect(
+            std::abs(
+                scaled.separator.margin -
+                scale * separated.separator.margin) <
+            scale * 1e-8);
+    }
+
+    // Duplicate-support detection must not manufacture an overlap when witness
+    // points have large absolute coordinates. A common translation leaves the
+    // Minkowski point local. At this deliberately extreme scale the query may
+    // exhaust its iteration budget, but it must retain a finite, conservative
+    // separator instead of returning overlap/success with unsafe geometry.
+    const Eigen::Vector3d common_translation(1e12, -1e12, 5e11);
+    const xgc2_math::SphereSet translated_vehicle(
+        vehicle.center() + common_translation, 0.43);
+    const xgc2_math::BoxSet translated_obstacle(
+        obstacle.center() + common_translation,
+        Eigen::Vector3d(1.0, 0.7, 1.5),
+        Eigen::Quaterniond::Identity());
+    const xgc2_math::gjk::Result translated =
+        xgc2_math::gjk::DistanceGjkQuery::query(
+            translated_vehicle, translated_obstacle, nullptr,
+            1e-6, 256, 1e-9);
+    expect(
+        translated.status ==
+            xgc2_math::gjk::Result::Status::kSuccess ||
+        translated.status ==
+            xgc2_math::gjk::Result::Status::kMaxIterations);
+    expect(
+        std::abs(
+            translated.separator.margin -
+            separated.separator.margin) < 5e-4);
+
+    const xgc2_math::SphereSet overlapping(
+        Eigen::Vector3d(6.8, 2.8, 0.0), 0.43);
+    const xgc2_math::gjk::Result overlap =
+        xgc2_math::gjk::DistanceGjkQuery::query(
+            overlapping, obstacle, nullptr, 1e-6, 256, 1e-9);
+    expect(
+        overlap.status ==
+        xgc2_math::gjk::Result::Status::kOverlap);
+
+    // A strictly containing but very thin tetrahedron must not be demoted to
+    // a separated face merely because its volume is small.
+    for (const double thickness : {1e-10, 1e-13, 1e-16}) {
+        xgc2_math::gjk::detail::Simplex simplex;
+        simplex.count = 4;
+        simplex.vertices[0].w =
+            Eigen::Vector3d(1.0, 0.0, thickness);
+        simplex.vertices[1].w =
+            Eigen::Vector3d(-1.0, 0.0, thickness);
+        simplex.vertices[2].w =
+            Eigen::Vector3d(0.0, 1.0, -thickness);
+        simplex.vertices[3].w =
+            Eigen::Vector3d(0.0, -1.0, -thickness);
+        for (std::size_t index = 0; index < 4; ++index) {
+            simplex.vertices[index].a.setZero();
+            simplex.vertices[index].b =
+                simplex.vertices[index].w;
+        }
+        expect(xgc2_math::gjk::detail::solveSimplex(simplex));
+    }
+
+    // A low-volume needle tetrahedron is still full-rank and strictly
+    // contains the origin. Volume magnitude alone must never demote it to a
+    // face. Exercise both the simplex primitive and the public query over
+    // several coordinate scales.
+    for (const double scale : {1e-9, 1.0, 1e9}) {
+        for (const double radius : {1e-7, 1e-8}) {
+            xgc2_math::gjk::detail::Simplex simplex;
+            simplex.count = 4;
+            simplex.vertices[0].w =
+                scale * Eigen::Vector3d(1.0, radius, radius);
+            simplex.vertices[1].w =
+                scale * Eigen::Vector3d(1.0, -radius, -radius);
+            simplex.vertices[2].w =
+                scale * Eigen::Vector3d(-1.0, radius, -radius);
+            simplex.vertices[3].w =
+                scale * Eigen::Vector3d(-1.0, -radius, radius);
+            for (std::size_t index = 0; index < 4; ++index) {
+                simplex.vertices[index].a.setZero();
+                simplex.vertices[index].b =
+                    simplex.vertices[index].w;
+            }
+            expect(xgc2_math::gjk::detail::solveSimplex(simplex));
+        }
+    }
+
+    const double needle_radius = 1e-7;
+    const xgc2_math::SupportPointSet origin_point(
+        Eigen::Vector3d::Zero(), {Eigen::Vector3d::Zero()});
+    const xgc2_math::SupportPointSet containing_needle(
+        Eigen::Vector3d::Zero(),
+        {
+            Eigen::Vector3d(1.0, needle_radius, needle_radius),
+            Eigen::Vector3d(1.0, -needle_radius, -needle_radius),
+            Eigen::Vector3d(-1.0, needle_radius, -needle_radius),
+            Eigen::Vector3d(-1.0, -needle_radius, needle_radius),
+        });
+    const xgc2_math::gjk::Result needle_overlap =
+        xgc2_math::gjk::DistanceGjkQuery::query(
+            origin_point, containing_needle, nullptr,
+            1e-8, 256, 1e-14);
+    expect(
+        needle_overlap.status ==
+        xgc2_math::gjk::Result::Status::kOverlap);
+}
+
 } // namespace
 
 int main() {
@@ -1463,5 +1647,6 @@ int main() {
     testPose3InertialEskfMeasurementJacobianMatchesFiniteDifference();
     testPose3InertialEskfVrpnHealthTransitions();
     testTrajectoryAndNmpcProblemContracts();
+    testDistanceGjkCoplanarSupportSimplex();
     return 0;
 }
