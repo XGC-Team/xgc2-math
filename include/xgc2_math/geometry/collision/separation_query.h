@@ -93,9 +93,15 @@ inline void reduceToVertex(Simplex& simplex, std::size_t idx) {
     simplex.updateClosest();
 }
 
+// NOTE (aliasing): the source indices may overlap the destination slots -- the
+// tetrahedron face (0, 3, 1) reduces with idx1 = 3, idx2 = 1, so writing
+// vertices[1] before reading vertices[idx2] would duplicate vertex 3 and drop
+// vertex 1.  Snapshot the sources first; an in-place write order is not safe.
 inline void reduceToSegment(Simplex& simplex, std::size_t idx0, std::size_t idx1, double w0, double w1) {
-    simplex.vertices[0] = simplex.vertices[idx0];
-    simplex.vertices[1] = simplex.vertices[idx1];
+    const Vertex v0 = simplex.vertices[idx0];
+    const Vertex v1 = simplex.vertices[idx1];
+    simplex.vertices[0] = v0;
+    simplex.vertices[1] = v1;
     simplex.vertices[0].weight = w0;
     simplex.vertices[1].weight = w1;
     simplex.count = 2;
@@ -104,9 +110,12 @@ inline void reduceToSegment(Simplex& simplex, std::size_t idx0, std::size_t idx1
 
 inline void reduceToTriangle(Simplex& simplex, std::size_t idx0, std::size_t idx1, std::size_t idx2, double w0,
                              double w1, double w2) {
-    simplex.vertices[0] = simplex.vertices[idx0];
-    simplex.vertices[1] = simplex.vertices[idx1];
-    simplex.vertices[2] = simplex.vertices[idx2];
+    const Vertex v0 = simplex.vertices[idx0];
+    const Vertex v1 = simplex.vertices[idx1];
+    const Vertex v2 = simplex.vertices[idx2];
+    simplex.vertices[0] = v0;
+    simplex.vertices[1] = v1;
+    simplex.vertices[2] = v2;
     simplex.vertices[0].weight = w0;
     simplex.vertices[1].weight = w1;
     simplex.vertices[2].weight = w2;

@@ -1548,6 +1548,80 @@ void testDistanceGjkCoplanarSupportSimplex() {
     expect(needle_overlap.status == xgc2_math::gjk::Result::Status::kOverlap);
 }
 
+void testSimplexReductionAliasing() {
+    // Regression: the simplex reducers copy from source slots into destination
+    // slots of the same array, and the two ranges overlap.  solveTetrahedron
+    // evaluates face (0, 3, 1), so a full-triangle reduction calls
+    // reduceToTriangle(simplex, 0, 3, 1, ...): writing vertices[1] = vertices[3]
+    // before reading vertices[idx2 = 1] duplicates vertex 3 and silently drops
+    // vertex 1.  GJK then stalls on a degenerate simplex and returns a
+    // suboptimal closest pair, which shows up downstream as a certified gap
+    // deficit.  The sources must be snapshotted before any slot is written.
+    const Eigen::Vector3d w0(1.0, 0.0, 0.0);
+    const Eigen::Vector3d w1(0.0, 1.0, 0.0);
+    const Eigen::Vector3d w2(0.0, 0.0, 1.0);
+    const Eigen::Vector3d w3(-1.0, -1.0, -1.0);
+
+    const auto makeSimplex = [](const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, const Eigen::Vector3d& v2,
+                                const Eigen::Vector3d& v3) {
+        xgc2_math::gjk::detail::Simplex simplex;
+        simplex.count = 4;
+        simplex.vertices[0].w = v0;
+        simplex.vertices[1].w = v1;
+        simplex.vertices[2].w = v2;
+        simplex.vertices[3].w = v3;
+        for (std::size_t index = 0; index < 4; ++index) {
+            simplex.vertices[index].a.setZero();
+            simplex.vertices[index].b = simplex.vertices[index].w;
+        }
+        return simplex;
+    };
+
+    // Destination slot 1 is written from source 3 while source 1 is still needed.
+    xgc2_math::gjk::detail::Simplex triangle = makeSimplex(w0, w1, w2, w3);
+    xgc2_math::gjk::detail::reduceToTriangle(triangle, 0, 3, 1, 0.25, 0.5, 0.25);
+    expect(triangle.count == 3);
+    expect(triangle.vertices[0].w == w0);
+    expect(triangle.vertices[1].w == w3);
+    expect(triangle.vertices[2].w == w1);
+    expect(triangle.vertices[0].b == w0);
+    expect(triangle.vertices[1].b == w3);
+    expect(triangle.vertices[2].b == w1);
+    // The retained vertices must stay distinct: aliasing collapses two of them.
+    expect(triangle.vertices[1].w != triangle.vertices[2].w);
+    expect(triangle.closest.isApprox(0.25 * w0 + 0.5 * w3 + 0.25 * w1, 1e-12));
+
+    // Same hazard one dimension down: destination slot 0 is written from
+    // source 1 while source 0 is still needed.
+    xgc2_math::gjk::detail::Simplex segment = makeSimplex(w0, w1, w2, w3);
+    xgc2_math::gjk::detail::reduceToSegment(segment, 1, 0, 0.5, 0.5);
+    expect(segment.count == 2);
+    expect(segment.vertices[0].w == w1);
+    expect(segment.vertices[1].w == w0);
+    expect(segment.vertices[0].w != segment.vertices[1].w);
+    expect(segment.closest.isApprox(0.5 * (w0 + w1), 1e-12));
+
+    // Every reduction the tetrahedron solver can emit must be order-independent.
+    const std::array<std::array<std::size_t, 3>, 4> faces{{{0, 1, 2}, {0, 2, 3}, {0, 3, 1}, {1, 3, 2}}};
+    for (const auto& face : faces) {
+        const std::array<Eigen::Vector3d, 4> source{{w0, w1, w2, w3}};
+        xgc2_math::gjk::detail::Simplex reduced = makeSimplex(w0, w1, w2, w3);
+        xgc2_math::gjk::detail::reduceToTriangle(reduced, face[0], face[1], face[2], 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0);
+        for (std::size_t index = 0; index < 3; ++index) {
+            expect(reduced.vertices[index].w == source[face[index]]);
+        }
+    }
+
+    // A flat four-point simplex on well-separated bodies has no interior, so it
+    // must never be reported as containing the origin.  Treating "no face
+    // classified the origin as outside" as containment yields a false overlap
+    // with closest = 0 for sets that are metres apart.
+    xgc2_math::gjk::detail::Simplex flat = makeSimplex(Eigen::Vector3d(5.0, 0.0, 0.0), Eigen::Vector3d(6.0, 0.0, 0.0),
+                                                       Eigen::Vector3d(5.0, 1.0, 0.0), Eigen::Vector3d(6.0, 1.0, 0.0));
+    expect(!xgc2_math::gjk::detail::solveSimplex(flat));
+    expect(std::abs(flat.closest.norm() - 5.0) < 1e-9);
+}
+
 } // namespace
 
 int main() {
@@ -1586,5 +1660,6 @@ int main() {
     testPose3InertialEskfVrpnHealthTransitions();
     testTrajectoryAndNmpcProblemContracts();
     testDistanceGjkCoplanarSupportSimplex();
+    testSimplexReductionAliasing();
     return 0;
 }
