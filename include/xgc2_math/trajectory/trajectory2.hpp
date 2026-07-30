@@ -108,16 +108,13 @@ struct SampledPoint2 {
 
 class SampledEvaluator2 final : public TrajectoryEvaluator2 {
   public:
-    bool setSamples(std::vector<SampledPoint2> samples,
-                    bool preserve_explicit_planar_kinematics = false);
+    bool setSamples(std::vector<SampledPoint2> samples, bool preserve_explicit_planar_kinematics = false);
     bool evaluate(double t, PlanarReference2& output) const override;
     double duration() const override { return duration_; }
     TrajectoryModelType type() const override { return TrajectoryModelType::kSampled; }
     uint32_t flags() const override { return flags_; }
     const std::vector<SampledPoint2>& samples() const { return samples_; }
-    bool preservesExplicitPlanarKinematics() const {
-        return preserve_explicit_planar_kinematics_;
-    }
+    bool preservesExplicitPlanarKinematics() const { return preserve_explicit_planar_kinematics_; }
 
   private:
     std::vector<SampledPoint2> samples_;
@@ -399,9 +396,8 @@ inline bool MincoWaypointSolver2::solve(const WaypointProblem2& problem, Piecewi
     return ok && (local_flags & (kFlagInvalidInput | kFlagNonFinite)) == 0U;
 }
 
-inline bool SampledEvaluator2::setSamples(
-    std::vector<SampledPoint2> samples,
-    bool preserve_explicit_planar_kinematics) {
+inline bool SampledEvaluator2::setSamples(std::vector<SampledPoint2> samples,
+                                          bool preserve_explicit_planar_kinematics) {
     if (samples.empty()) {
         flags_ |= kFlagInvalidInput;
         return false;
@@ -423,8 +419,7 @@ inline bool SampledEvaluator2::setSamples(
     }
     duration_ = samples.back().t;
     samples_ = std::move(samples);
-    preserve_explicit_planar_kinematics_ =
-        preserve_explicit_planar_kinematics;
+    preserve_explicit_planar_kinematics_ = preserve_explicit_planar_kinematics;
     if (preserve_explicit_planar_kinematics_) {
         flags_ |= kFlagExplicitPlanarKinematics;
     }
@@ -457,21 +452,13 @@ inline bool SampledEvaluator2::evaluate(double t, PlanarReference2& output) cons
         output.jerk = (1.0 - ratio) * a.reference.jerk + ratio * b.reference.jerk;
         output.yaw = a.reference.yaw + trajectory2_detail::wrapAngle(b.reference.yaw - a.reference.yaw) * ratio;
         if (preserve_explicit_planar_kinematics_) {
-            output.speed =
-                (1.0 - ratio) * a.reference.speed +
-                ratio * b.reference.speed;
+            output.speed = (1.0 - ratio) * a.reference.speed + ratio * b.reference.speed;
             output.linear_acceleration =
-                (1.0 - ratio) * a.reference.linear_acceleration +
-                ratio * b.reference.linear_acceleration;
-            output.yaw_rate =
-                (1.0 - ratio) * a.reference.yaw_rate +
-                ratio * b.reference.yaw_rate;
+                (1.0 - ratio) * a.reference.linear_acceleration + ratio * b.reference.linear_acceleration;
+            output.yaw_rate = (1.0 - ratio) * a.reference.yaw_rate + ratio * b.reference.yaw_rate;
             output.yaw_acceleration =
-                (1.0 - ratio) * a.reference.yaw_acceleration +
-                ratio * b.reference.yaw_acceleration;
-            output.curvature =
-                (1.0 - ratio) * a.reference.curvature +
-                ratio * b.reference.curvature;
+                (1.0 - ratio) * a.reference.yaw_acceleration + ratio * b.reference.yaw_acceleration;
+            output.curvature = (1.0 - ratio) * a.reference.curvature + ratio * b.reference.curvature;
         } else {
             completePlanarReference2(output);
         }
@@ -526,9 +513,7 @@ inline std::unique_ptr<TrajectoryEvaluator2> cloneEvaluator(const TrajectoryEval
         const auto* sampled = dynamic_cast<const SampledEvaluator2*>(&evaluator);
         if (sampled) {
             auto clone = std::make_unique<SampledEvaluator2>();
-            clone->setSamples(
-                sampled->samples(),
-                sampled->preservesExplicitPlanarKinematics());
+            clone->setSamples(sampled->samples(), sampled->preservesExplicitPlanarKinematics());
             return clone;
         }
     }

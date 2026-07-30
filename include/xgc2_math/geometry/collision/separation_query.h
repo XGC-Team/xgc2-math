@@ -114,20 +114,16 @@ inline void reduceToTriangle(Simplex& simplex, std::size_t idx0, std::size_t idx
     simplex.updateClosest();
 }
 
-inline bool numericallySameVector(
-    const Eigen::Vector3d& lhs, const Eigen::Vector3d& rhs) {
+inline bool numericallySameVector(const Eigen::Vector3d& lhs, const Eigen::Vector3d& rhs) {
     const double scale = std::max(lhs.norm(), rhs.norm());
     if (scale == 0.0) {
         return (lhs.array() == rhs.array()).all();
     }
-    return (lhs - rhs).norm() <=
-           64.0 * std::numeric_limits<double>::epsilon() * scale;
+    return (lhs - rhs).norm() <= 64.0 * std::numeric_limits<double>::epsilon() * scale;
 }
 
-inline long double dot3LongDouble(
-    const Eigen::Vector3d& lhs, const Eigen::Vector3d& rhs) {
-    return static_cast<long double>(lhs.x()) * rhs.x() +
-           static_cast<long double>(lhs.y()) * rhs.y() +
+inline long double dot3LongDouble(const Eigen::Vector3d& lhs, const Eigen::Vector3d& rhs) {
+    return static_cast<long double>(lhs.x()) * rhs.x() + static_cast<long double>(lhs.y()) * rhs.y() +
            static_cast<long double>(lhs.z()) * rhs.z();
 }
 
@@ -138,12 +134,9 @@ inline void deduplicateVertices(Simplex& simplex) {
 
     for (std::size_t i = 0; i < simplex.count; ++i) {
         for (std::size_t j = i + 1; j < simplex.count;) {
-            if (numericallySameVector(
-                    simplex.vertices[i].w, simplex.vertices[j].w) &&
-                numericallySameVector(
-                    simplex.vertices[i].a, simplex.vertices[j].a) &&
-                numericallySameVector(
-                    simplex.vertices[i].b, simplex.vertices[j].b)) {
+            if (numericallySameVector(simplex.vertices[i].w, simplex.vertices[j].w) &&
+                numericallySameVector(simplex.vertices[i].a, simplex.vertices[j].a) &&
+                numericallySameVector(simplex.vertices[i].b, simplex.vertices[j].b)) {
                 simplex.vertices[i].weight += simplex.vertices[j].weight;
                 for (std::size_t k = j; k + 1 < simplex.count; ++k) {
                     simplex.vertices[k] = simplex.vertices[k + 1];
@@ -189,8 +182,7 @@ inline void solveSegment(Simplex& simplex) {
     }
 
     const long double raw_t = -dot3LongDouble(a, ab) / denom;
-    const double t = static_cast<double>(
-        std::max(0.0L, std::min(1.0L, raw_t)));
+    const double t = static_cast<double>(std::max(0.0L, std::min(1.0L, raw_t)));
     if (t <= 0.0) {
         reduceToVertex(simplex, 0);
         return;
@@ -250,8 +242,7 @@ inline void solveTriangle(Simplex& simplex) {
 
     const long double va = d3 * d6 - d5 * d4;
     if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
-        const double w = static_cast<double>(
-            (d4 - d3) / ((d4 - d3) + (d5 - d6)));
+        const double w = static_cast<double>((d4 - d3) / ((d4 - d3) + (d5 - d6)));
         reduceToSegment(simplex, 1, 2, 1.0 - w, w);
         return;
     }
@@ -259,19 +250,15 @@ inline void solveTriangle(Simplex& simplex) {
     const long double denom = va + vb + vc;
     if (denom == 0.0L) {
         Simplex closest_edge;
-        double closest_distance_sq =
-            std::numeric_limits<double>::infinity();
+        double closest_distance_sq = std::numeric_limits<double>::infinity();
         for (const std::array<std::size_t, 2> edge :
-             {std::array<std::size_t, 2>{0, 1},
-              std::array<std::size_t, 2>{0, 2},
-              std::array<std::size_t, 2>{1, 2}}) {
+             {std::array<std::size_t, 2>{0, 1}, std::array<std::size_t, 2>{0, 2}, std::array<std::size_t, 2>{1, 2}}) {
             Simplex edge_simplex;
             edge_simplex.count = 2;
             edge_simplex.vertices[0] = simplex.vertices[edge[0]];
             edge_simplex.vertices[1] = simplex.vertices[edge[1]];
             solveSegment(edge_simplex);
-            const double distance_sq =
-                edge_simplex.closest.squaredNorm();
+            const double distance_sq = edge_simplex.closest.squaredNorm();
             if (distance_sq < closest_distance_sq) {
                 closest_distance_sq = distance_sq;
                 closest_edge = edge_simplex;
@@ -287,41 +274,26 @@ inline void solveTriangle(Simplex& simplex) {
     reduceToTriangle(simplex, 0, 1, 2, u, v, w);
 }
 
-inline long double orientation3d(
-    const Eigen::Vector3d& a, const Eigen::Vector3d& b,
-    const Eigen::Vector3d& c, const Eigen::Vector3d& d) {
-    const long double ab_x =
-        static_cast<long double>(b.x()) - a.x();
-    const long double ab_y =
-        static_cast<long double>(b.y()) - a.y();
-    const long double ab_z =
-        static_cast<long double>(b.z()) - a.z();
-    const long double ac_x =
-        static_cast<long double>(c.x()) - a.x();
-    const long double ac_y =
-        static_cast<long double>(c.y()) - a.y();
-    const long double ac_z =
-        static_cast<long double>(c.z()) - a.z();
-    const long double ad_x =
-        static_cast<long double>(d.x()) - a.x();
-    const long double ad_y =
-        static_cast<long double>(d.y()) - a.y();
-    const long double ad_z =
-        static_cast<long double>(d.z()) - a.z();
-    return
-        ab_x * (ac_y * ad_z - ac_z * ad_y) -
-        ab_y * (ac_x * ad_z - ac_z * ad_x) +
-        ab_z * (ac_x * ad_y - ac_y * ad_x);
+inline long double orientation3d(const Eigen::Vector3d& a, const Eigen::Vector3d& b, const Eigen::Vector3d& c,
+                                 const Eigen::Vector3d& d) {
+    const long double ab_x = static_cast<long double>(b.x()) - a.x();
+    const long double ab_y = static_cast<long double>(b.y()) - a.y();
+    const long double ab_z = static_cast<long double>(b.z()) - a.z();
+    const long double ac_x = static_cast<long double>(c.x()) - a.x();
+    const long double ac_y = static_cast<long double>(c.y()) - a.y();
+    const long double ac_z = static_cast<long double>(c.z()) - a.z();
+    const long double ad_x = static_cast<long double>(d.x()) - a.x();
+    const long double ad_y = static_cast<long double>(d.y()) - a.y();
+    const long double ad_z = static_cast<long double>(d.z()) - a.z();
+    return ab_x * (ac_y * ad_z - ac_z * ad_y) - ab_y * (ac_x * ad_z - ac_z * ad_x) + ab_z * (ac_x * ad_y - ac_y * ad_x);
 }
 
 inline int orientationSign(long double value) {
     return value > 0.0L ? 1 : (value < 0.0L ? -1 : 0);
 }
 
-inline bool pointOutsideOfPlane(
-    const Eigen::Vector3d& p, const Eigen::Vector3d& a,
-    const Eigen::Vector3d& b, const Eigen::Vector3d& c,
-    const Eigen::Vector3d& d) {
+inline bool pointOutsideOfPlane(const Eigen::Vector3d& p, const Eigen::Vector3d& a, const Eigen::Vector3d& b,
+                                const Eigen::Vector3d& c, const Eigen::Vector3d& d) {
     const int sign_p = orientationSign(orientation3d(a, b, c, p));
     const int sign_d = orientationSign(orientation3d(a, b, c, d));
     return sign_p != 0 && sign_d != 0 && sign_p != sign_d;
@@ -393,9 +365,8 @@ inline bool solveTetrahedron(Simplex& simplex) {
         if (orientationSign(orientation3d(a, b, c, d)) != 0) {
             return true;
         }
-        const double edge_scale = std::max(
-            {(b - a).norm(), (c - a).norm(), (d - a).norm(),
-             (c - b).norm(), (d - b).norm(), (d - c).norm()});
+        const double edge_scale =
+            std::max({(b - a).norm(), (c - a).norm(), (d - a).norm(), (c - b).norm(), (d - b).norm(), (d - c).norm()});
         candidates[candidate_count++] = evaluate_face(0, 1, 2);
         candidates[candidate_count++] = evaluate_face(0, 2, 3);
         candidates[candidate_count++] = evaluate_face(0, 3, 1);
@@ -416,11 +387,8 @@ inline bool solveTetrahedron(Simplex& simplex) {
         return true;
     }
     if (reduced_degenerate_tetrahedron) {
-        const double distance_tolerance =
-            64.0 * std::numeric_limits<double>::epsilon() *
-            degenerate_edge_scale;
-        if (best.dist_sq <=
-            distance_tolerance * distance_tolerance) {
+        const double distance_tolerance = 64.0 * std::numeric_limits<double>::epsilon() * degenerate_edge_scale;
+        if (best.dist_sq <= distance_tolerance * distance_tolerance) {
             return true;
         }
     }
