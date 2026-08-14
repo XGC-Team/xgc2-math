@@ -19,24 +19,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install C++ quality tools
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-                build-essential \
-                clang-format \
-                clang-tidy \
-                cmake \
-                cppcheck \
-                libeigen3-dev \
-                libgtest-dev
-
       - name: Run C++ quality gate
         run: |
           set -euo pipefail
-          cd "${GITHUB_WORKSPACE}"
-          ./.xgc2/scripts/check_cpp_quality.sh
+          docker pull ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0
+          docker run --rm --network none \
+            -v "${GITHUB_WORKSPACE}:/work" -w /work \
+            ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0 \
+            bash -lc './.xgc2/scripts/check_cpp_quality.sh'
 
   package-compliance:
     runs-on: ubuntu-latest
@@ -62,16 +52,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: ubuntu:18.04
+          - image: ghcr.io/xgc-team/xgc2-images/xgc2-build-bionic-dev:1.0.0
             distribution: bionic
             runner: ubuntu-latest
-          - image: ubuntu:20.04
+          - image: ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0
             distribution: focal
             runner: ubuntu-latest
-          - image: ubuntu:22.04
+          - image: ghcr.io/xgc-team/xgc2-images/xgc2-build-jammy-dev:1.0.0
             distribution: jammy
             runner: ubuntu-latest
-          - image: ubuntu:24.04
+          - image: ghcr.io/xgc-team/xgc2-images/xgc2-build-noble-dev:1.0.0
             distribution: noble
             runner: ubuntu-latest
     defaults:
@@ -85,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           install -d .ci/build-manifests
-          docker run --rm \
+          docker run --rm --network none \
             -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
             -v "${GITHUB_WORKSPACE}:/work" \
             -w /work \
@@ -93,8 +83,7 @@ jobs:
             bash -lc '
               set -euo pipefail
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends \
+              for pkg in \
                 build-essential \
                 ca-certificates \
                 cmake \
@@ -104,10 +93,16 @@ jobs:
                 git \
                 libeigen3-dev \
                 libgtest-dev
+              do
+                if ! dpkg -s "${pkg}" >/dev/null 2>&1; then
+                  echo "image is missing ${pkg}; use xgc2-build-*-dev" >&2
+                  exit 1
+                fi
+              done
               git config --global --add safe.directory /work
               ./.xgc2/scripts/check_package_compliance.sh
               ./.xgc2/scripts/build_deb.sh
-              apt-get install -y ./debs/*.deb
+              dpkg -i ./debs/*.deb
               ./.xgc2/scripts/smoke_test_installed.sh
             '
 
