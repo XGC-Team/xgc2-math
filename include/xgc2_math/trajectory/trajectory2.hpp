@@ -317,8 +317,11 @@ inline bool PiecewisePolynomialEvaluator2::evaluate(double t, PlanarReference2& 
         output.yaw = trajectory2_detail::wrapAngle(trajectory2_detail::polyValue(segment.yaw, local_t, 0));
         output.yaw_rate = trajectory2_detail::polyValue(segment.yaw, local_t, 1);
         output.yaw_acceleration = trajectory2_detail::polyValue(segment.yaw, local_t, 2);
-        output.speed = output.velocity.norm();
-        output.linear_acceleration = output.speed > trajectory2_detail::kMinSpeed
+        // Preserve reverse motion: explicit yaw may point opposite the
+        // polynomial velocity, so speed must be the signed body-axis
+        // projection rather than an always-positive norm.
+        output.speed = output.velocity.dot(trajectory2_detail::unitFromYaw(output.yaw));
+        output.linear_acceleration = std::abs(output.speed) > trajectory2_detail::kMinSpeed
                                          ? output.velocity.dot(output.acceleration) / output.speed
                                          : 0.0;
         output.curvature =

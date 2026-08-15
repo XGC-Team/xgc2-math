@@ -1305,6 +1305,16 @@ void testTrajectoryAndNmpcProblemContracts() {
     expect(std::fabs(reverse_midpoint.speed + 0.3) < 1.0e-12);
     expect(explicit_planar_samples.flags() & xgc2_math::trajectory::kFlagExplicitPlanarKinematics);
 
+    xgc2_math::trajectory::PolynomialSegment2 reverse_segment;
+    reverse_segment.duration = 1.0;
+    reverse_segment.x = {0.0, -1.0};
+    reverse_segment.y = {0.0, 0.0};
+    reverse_segment.yaw = {0.0, 0.0};
+    xgc2_math::trajectory::PiecewisePolynomialEvaluator2 reverse_polynomial;
+    expect(reverse_polynomial.setSegments({reverse_segment}, 1U));
+    expect(reverse_polynomial.evaluate(0.5, reverse_midpoint));
+    expect(std::fabs(reverse_midpoint.speed + 1.0) < 1.0e-12);
+
     xgc2_math::trajectory::Se2TargetState2 se2_start;
     se2_start.position = Eigen::Vector2d(0.0, 0.0);
     se2_start.yaw = 0.0;
