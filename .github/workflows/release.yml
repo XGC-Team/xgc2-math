@@ -147,6 +147,7 @@ jobs:
       - name: Run C++ quality gate
         run: |
           set -euo pipefail
+          install -d .ci/build-manifests
           docker pull ghcr.io/xgc-team/xgc2-images/xgc2-build-focal-dev:1.0.0
           docker run --rm --network none \
             -v "${GITHUB_WORKSPACE}:/work" -w /work \
@@ -168,7 +169,6 @@ jobs:
       - name: Build deb and run installed smoke test
         run: |
           set -euo pipefail
-          install -d .ci/build-manifests
           docker run --rm --network none \
             -e XGC2_APT_OVERLAY_URL="${XGC2_APT_OVERLAY_URL:-}" \
             -e PACKAGE_DISTRIBUTION="${{ matrix.distribution }}" \
