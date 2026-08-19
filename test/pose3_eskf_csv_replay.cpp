@@ -28,11 +28,14 @@ double atofCol(const std::vector<std::string>& cols, std::size_t i) {
     return i < cols.size() ? std::atof(cols[i].c_str()) : 0.0;
 }
 
-xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s, double body_to_marker_yaw_rad) {
+xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s, double body_to_marker_yaw_rad, double accel_noise_std,
+                                             bool imu_noise_std_is_density, bool apply_pose_covariance_floor,
+                                             int pose_update_iterations) {
     xgc2_math::Pose3InertialEskfConfig config;
     config.gravity_mps2 = 9.8066;
     config.body_to_marker.orientation = xgc2_math::rpyToQuaternion(Eigen::Vector3d(0.0, 0.0, body_to_marker_yaw_rad));
-    config.accel_noise_std = 0.35;
+    config.imu_noise_std_is_density = imu_noise_std_is_density;
+    config.accel_noise_std = accel_noise_std;
     config.gyro_noise_std = 0.03;
     config.pose_position_noise_std = 0.01;
     config.pose_orientation_noise_std = 0.01;
@@ -47,7 +50,8 @@ xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s, double body_to_mark
     config.pose_observation_delay_s = delay_s;
     config.pose_position_kalman_gain = 0.9;
     config.pose_orientation_kalman_gain = 0.8;
-    config.pose_update_iterations = 3;
+    config.apply_pose_covariance_floor = apply_pose_covariance_floor;
+    config.pose_update_iterations = pose_update_iterations;
     config.inertial_buffer_capacity = 128;
     config.initial_position_variance = 0.01;
     config.initial_velocity_variance = 0.1;
@@ -60,12 +64,17 @@ xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s, double body_to_mark
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc < 3 || argc > 5) {
-        std::cerr << "usage: pose3_eskf_csv_replay events.csv state.csv [delay_s] [body_to_marker_yaw_rad]\n";
+    if (argc < 3 || argc > 9) {
+        std::cerr << "usage: pose3_eskf_csv_replay events.csv state.csv [delay_s] [body_to_marker_yaw_rad]"
+                     " [accel_noise_std] [density_0_or_1] [pose_floor_0_or_1] [pose_iterations]\n";
         return 2;
     }
     const double delay_s = argc >= 4 ? std::atof(argv[3]) : 0.0;
     const double body_to_marker_yaw_rad = argc >= 5 ? std::atof(argv[4]) : 0.0;
+    const double accel_noise_std = argc >= 6 ? std::atof(argv[5]) : 0.35;
+    const bool imu_noise_std_is_density = argc >= 7 ? std::atoi(argv[6]) != 0 : true;
+    const bool apply_pose_covariance_floor = argc >= 8 ? std::atoi(argv[7]) != 0 : true;
+    const int pose_update_iterations = argc >= 9 ? std::atoi(argv[8]) : 3;
 
     std::ifstream in(argv[1]);
     if (!in) {
@@ -79,7 +88,8 @@ int main(int argc, char** argv) {
     }
 
     xgc2_math::Pose3InertialEskf eskf;
-    eskf.setConfig(bagConfig(delay_s, body_to_marker_yaw_rad));
+    eskf.setConfig(bagConfig(delay_s, body_to_marker_yaw_rad, accel_noise_std, imu_noise_std_is_density,
+                             apply_pose_covariance_floor, pose_update_iterations));
     int pose_accepted = 0;
     int pose_ta = 0;
     int imu_n = 0;

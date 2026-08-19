@@ -23,8 +23,10 @@ struct Pose3InertialEskfConfig {
     // flight estimator; online extrinsic calibration belongs in a separate estimator.
     bool estimate_extrinsic{false};
 
-    // Continuous-time densities, not per-IMU-sample std. Accel/gyro white noise:
-    // (m/s²)/√Hz and (rad/s)/√Hz. Bias random walk: (m/s²)/√s and (rad/s)/√s.
+    // When true, accel/gyro stds are continuous-time densities:
+    // (m/s²)/√Hz and (rad/s)/√Hz. False preserves legacy per-sample semantics.
+    // Bias random walk stds are always continuous-time densities.
+    bool imu_noise_std_is_density{false};
     double accel_noise_std{0.35};
     double gyro_noise_std{0.03};
     double pose_position_noise_std{0.01};
@@ -39,6 +41,7 @@ struct Pose3InertialEskfConfig {
     double innovation_orientation_gate_rad{0.8};
     // After a trusted pose, keep P_pp so the next K_p ≈ this (K = P/(P+R)).
     // 0.9 means listen to VRPN. Old 0.25 R floor was K_p = 0.2 (listen to IMU).
+    bool apply_pose_covariance_floor{true};
     double pose_position_kalman_gain{0.9};
     double pose_orientation_kalman_gain{0.8};
     // IESKF: relinearize H at the updated nominal state. 1 = classic ESKF.
@@ -625,12 +628,6 @@ class Pose3InertialEskf {
         const MeasurementVector first_innovation = measurementResidual(predicted_marker, marker_world);
         result.position_innovation_norm = first_innovation.head<3>().norm();
         result.orientation_innovation_norm = first_innovation.tail<3>().norm();
-        const bool needs_pose_recapture = result.position_innovation_norm > config_.innovation_position_gate_m ||
-                                          result.orientation_innovation_norm > config_.innovation_orientation_gate_rad;
-        if (needs_pose_recapture) {
-            inflatePoseRecaptureCovariance();
-        }
-
         // IESKF (FAST-LIO / IKFoM): relinearize H at x_κ, keep P at the IMU
         // prediction, and apply dx = -K inn + (KH - I)(x_κ ⊖ x_pred) so later
         // iterations do not re-apply the same P as if the state were still at
@@ -698,7 +695,9 @@ class Pose3InertialEskf {
             injectError(delta);
             refreshDerivedInertialState();
             fused = true;
-            if (delta.head<6>().norm() < config_.pose_update_convergence) {
+            const double pose_delta_norm =
+                std::sqrt(delta.segment<3>(0).squaredNorm() + delta.segment<3>(6).squaredNorm());
+            if (pose_delta_norm < config_.pose_update_convergence) {
                 break;
             }
         }
@@ -716,7 +715,9 @@ class Pose3InertialEskf {
         const ErrorCovariance identity = ErrorCovariance::Identity();
         covariance_ = (identity - K * H) * P_iter * (identity - K * H).transpose() + K * R * K.transpose();
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
-        applyMeasurementCovarianceFloor();
+        if (config_.apply_pose_covariance_floor) {
+            applyMeasurementCovarianceFloor();
+        }
         state_.last_pose_stamp_sec = pose.stamp_sec;
         state_.covariance_trace = covariance_.trace();
         corrected_body_pose_ = bodyPoseFromState(state_);
@@ -795,13 +796,6 @@ class Pose3InertialEskf {
         covariance_.block<3, 3>(6, 6).diagonal().setConstant(config_.initial_orientation_variance);
         covariance_.block<3, 3>(9, 9).diagonal().setConstant(config_.initial_gyro_bias_variance);
         covariance_.block<3, 3>(12, 12).diagonal().setConstant(config_.initial_accel_bias_variance);
-        state_.covariance_trace = covariance_.trace();
-    }
-
-    void inflatePoseRecaptureCovariance() {
-        setMinimumCovarianceDiagonal(0, config_.initial_position_variance);
-        setMinimumCovarianceDiagonal(3, config_.initial_velocity_variance);
-        setMinimumCovarianceDiagonal(6, config_.initial_orientation_variance);
         state_.covariance_trace = covariance_.trace();
     }
 
@@ -929,10 +923,10 @@ class Pose3InertialEskf {
         // Discrete IESKF process (FAST-LIO2 use-ikfom df_dx / df_dw, 15-state
         // subset: no gravity manifold, no lidar extrinsics).
         // F = I + F_c dt with F_θθ = Exp(-[ω]× dt), F_θ,bg = -Jr(ω dt) dt.
-        // G = G_c dt as in IKFoM predict: P += (dt f_w) Q (dt f_w)^T.
-        // Config stds are continuous-time densities, so Q here is Qc/dt and
-        // Q_d = G_c Qc G_c^T dt. Using Qc=std² with G∝dt underweights velocity
-        // and bias process noise by 1/dt; flooring P_pp cannot create K_v.
+        // Density mode uses the closed-form p/v blocks for continuous white
+        // acceleration: Qpp=q dt³/3, Qpv=q dt²/2, Qvv=q dt. Legacy mode
+        // preserves the old per-sample white-noise discretization. Bias random
+        // walks are continuous densities in both modes.
         const Eigen::Vector3d phi = omega_body * dt;
         const Eigen::Matrix3d jr = pose3_inertial_eskf_detail::so3RightJacobian(phi);
         const Eigen::Matrix3d accel_skew = pose3_inertial_eskf_detail::skewMatrix(accel_body);
@@ -946,23 +940,33 @@ class Pose3InertialEskf {
         F.block<3, 3>(3, 12) = -rotation * dt;
         F.block<3, 3>(6, 9) = -jr * dt;
 
-        Eigen::Matrix<double, kErrorStateDim, 12> G = Eigen::Matrix<double, kErrorStateDim, 12>::Zero();
-        G.block<3, 3>(6, 0) = -jr * dt;
-        G.block<3, 3>(3, 3) = -rotation * dt;
-        G.block<3, 3>(0, 3) = -0.5 * rotation * dt * dt;
-        G.block<3, 3>(9, 6) = Eigen::Matrix3d::Identity() * dt;
-        G.block<3, 3>(12, 9) = Eigen::Matrix3d::Identity() * dt;
+        const double accel_variance = config_.accel_noise_std * config_.accel_noise_std;
+        const double gyro_variance = config_.gyro_noise_std * config_.gyro_noise_std;
+        const Eigen::Matrix3d accel_world_covariance =
+            rotation * (Eigen::Matrix3d::Identity() * accel_variance) * rotation.transpose();
+        const Eigen::Matrix3d gyro_covariance = jr * (Eigen::Matrix3d::Identity() * gyro_variance) * jr.transpose();
+        const double dt2 = dt * dt;
+        const double dt3 = dt2 * dt;
+        ErrorCovariance Qd = ErrorCovariance::Zero();
+        if (config_.imu_noise_std_is_density) {
+            Qd.block<3, 3>(0, 0) = accel_world_covariance * (dt3 / 3.0);
+            Qd.block<3, 3>(0, 3) = accel_world_covariance * (0.5 * dt2);
+            Qd.block<3, 3>(3, 0) = Qd.block<3, 3>(0, 3).transpose();
+            Qd.block<3, 3>(3, 3) = accel_world_covariance * dt;
+            Qd.block<3, 3>(6, 6) = gyro_covariance * dt;
+        } else {
+            Qd.block<3, 3>(0, 0) = accel_world_covariance * (0.25 * dt2 * dt2);
+            Qd.block<3, 3>(0, 3) = accel_world_covariance * (0.5 * dt3);
+            Qd.block<3, 3>(3, 0) = Qd.block<3, 3>(0, 3).transpose();
+            Qd.block<3, 3>(3, 3) = accel_world_covariance * dt2;
+            Qd.block<3, 3>(6, 6) = gyro_covariance * dt2;
+        }
+        Qd.block<3, 3>(9, 9).diagonal().setConstant(config_.gyro_bias_random_walk_std *
+                                                    config_.gyro_bias_random_walk_std * dt);
+        Qd.block<3, 3>(12, 12).diagonal().setConstant(config_.accel_bias_random_walk_std *
+                                                      config_.accel_bias_random_walk_std * dt);
 
-        const double inv_dt = 1.0 / dt;
-        Eigen::Matrix<double, 12, 12> process_noise = Eigen::Matrix<double, 12, 12>::Zero();
-        process_noise.diagonal().segment<3>(0).setConstant(config_.gyro_noise_std * config_.gyro_noise_std * inv_dt);
-        process_noise.diagonal().segment<3>(3).setConstant(config_.accel_noise_std * config_.accel_noise_std * inv_dt);
-        process_noise.diagonal().segment<3>(6).setConstant(config_.gyro_bias_random_walk_std *
-                                                           config_.gyro_bias_random_walk_std * inv_dt);
-        process_noise.diagonal().segment<3>(9).setConstant(config_.accel_bias_random_walk_std *
-                                                           config_.accel_bias_random_walk_std * inv_dt);
-
-        covariance_ = F * covariance_ * F.transpose() + G * process_noise * G.transpose();
+        covariance_ = F * covariance_ * F.transpose() + Qd;
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
     }
 

@@ -47,6 +47,11 @@ struct Pose3InertialEskfTestAccess {
     static bool hasLastInertial(const Pose3InertialEskf& estimator) { return estimator.has_last_inertial_; }
 
     static double lastInertialStamp(const Pose3InertialEskf& estimator) { return estimator.last_inertial_.stamp_sec; }
+
+    static void clearCovariance(Pose3InertialEskf& estimator) {
+        estimator.covariance_.setZero();
+        estimator.state_.covariance_trace = 0.0;
+    }
 };
 
 } // namespace xgc2_math
@@ -915,6 +920,7 @@ void testPose3InertialEskfPosePullsVelocityThroughCrossCovariance() {
 
 void testPose3InertialEskfProcessNoiseScalesWithDtNotDtSquared() {
     xgc2_math::Pose3InertialEskfConfig config;
+    config.imu_noise_std_is_density = true;
     config.accel_noise_std = 0.35;
     config.accel_bias_random_walk_std = 1.0e-3;
     config.gyro_noise_std = 0.03;
@@ -938,6 +944,59 @@ void testPose3InertialEskfProcessNoiseScalesWithDtNotDtSquared() {
     expect(dpba > 0.5 * qba);
     expect(dpba < 2.0 * qba + 1.0e-8);
     expect(dpvv > 20.0 * config.accel_noise_std * config.accel_noise_std * dt * dt);
+}
+
+void testPose3InertialEskfProcessNoiseDensityIsRateInvariant() {
+    const auto propagate_one_second = [](int rate_hz, bool density) {
+        xgc2_math::Pose3InertialEskfConfig config;
+        config.imu_noise_std_is_density = density;
+        config.accel_noise_std = 0.5;
+        config.gyro_noise_std = 1.0e-12;
+        config.gyro_bias_random_walk_std = 0.0;
+        config.accel_bias_random_walk_std = 0.0;
+
+        xgc2_math::Pose3InertialEskf eskf;
+        eskf.setConfig(config);
+        const auto imu0 = InertialPoseTestSamples::inertial(1.0);
+        eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+        xgc2_math::Pose3InertialEskfTestAccess::clearCovariance(eskf);
+
+        const double dt = 1.0 / static_cast<double>(rate_hz);
+        for (int i = 1; i <= rate_hz; ++i) {
+            eskf.propagateInertial(InertialPoseTestSamples::inertial(1.0 + static_cast<double>(i) * dt));
+        }
+        return eskf.covariance();
+    };
+
+    const auto density_100 = propagate_one_second(100, true);
+    const auto density_200 = propagate_one_second(200, true);
+    expect(std::fabs(density_100(3, 3) - 0.25) < 1.0e-9);
+    expect(std::fabs(density_100(0, 3) - 0.125) < 1.0e-9);
+    expect(std::fabs(density_100(0, 0) - (1.0 / 12.0)) < 1.0e-9);
+    expect((density_100 - density_200).norm() < 1.0e-8);
+
+    const auto legacy_100 = propagate_one_second(100, false);
+    const auto legacy_200 = propagate_one_second(200, false);
+    expect(std::fabs(legacy_200(3, 3) / legacy_100(3, 3) - 0.5) < 1.0e-8);
+}
+
+void testPose3InertialEskfPoseCovarianceFloorIsConfigurable() {
+    const auto updated_position_variance = [](bool apply_floor) {
+        xgc2_math::Pose3InertialEskfConfig config;
+        config.apply_pose_covariance_floor = apply_floor;
+        config.pose_position_noise_std = 0.01;
+        xgc2_math::Pose3InertialEskf eskf;
+        eskf.setConfig(config);
+        const auto imu0 = InertialPoseTestSamples::inertial(1.0);
+        eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+        expect(eskf.updatePose(InertialPoseTestSamples::pose(1.01, Eigen::Vector3d(0.05, 0.0, 0.0))).accepted);
+        return eskf.covariance()(0, 0);
+    };
+
+    const double without_floor = updated_position_variance(false);
+    const double with_floor = updated_position_variance(true);
+    expect(without_floor < 2.0e-4);
+    expect(with_floor >= 8.9e-4);
 }
 
 void testPose3InertialEskfInvalidAndLargeDtHoldState() {
@@ -1691,6 +1750,8 @@ int main() {
     testPose3InertialEskfContinuousVrpnPullsLaggedFilter();
     testPose3InertialEskfPosePullsVelocityThroughCrossCovariance();
     testPose3InertialEskfProcessNoiseScalesWithDtNotDtSquared();
+    testPose3InertialEskfProcessNoiseDensityIsRateInvariant();
+    testPose3InertialEskfPoseCovarianceFloorIsConfigurable();
     testPose3InertialEskfInvalidAndLargeDtHoldState();
     testPose3InertialEskfGyroBiasAndCorrectedPose();
     testPose3InertialEskfPoseUpdateRefreshesDerivedImuState();
