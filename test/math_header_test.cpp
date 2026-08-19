@@ -978,6 +978,32 @@ void testPose3InertialEskfProcessNoiseDensityIsRateInvariant() {
     const auto legacy_100 = propagate_one_second(100, false);
     const auto legacy_200 = propagate_one_second(200, false);
     expect(std::fabs(legacy_200(3, 3) / legacy_100(3, 3) - 0.5) < 1.0e-8);
+
+    const auto bias_variance_after_one_second = [](int rate_hz, bool density) {
+        xgc2_math::Pose3InertialEskfConfig config;
+        config.imu_noise_std_is_density = density;
+        config.accel_noise_std = 1.0e-12;
+        config.gyro_noise_std = 1.0e-12;
+        config.gyro_bias_random_walk_std = 0.0;
+        config.accel_bias_random_walk_std = 0.1;
+        xgc2_math::Pose3InertialEskf eskf;
+        eskf.setConfig(config);
+        const auto imu0 = InertialPoseTestSamples::inertial(1.0);
+        eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+        xgc2_math::Pose3InertialEskfTestAccess::clearCovariance(eskf);
+        const double dt = 1.0 / static_cast<double>(rate_hz);
+        for (int i = 1; i <= rate_hz; ++i) {
+            eskf.propagateInertial(InertialPoseTestSamples::inertial(1.0 + static_cast<double>(i) * dt));
+        }
+        return eskf.covariance()(12, 12);
+    };
+    const double density_bias_100 = bias_variance_after_one_second(100, true);
+    const double density_bias_200 = bias_variance_after_one_second(200, true);
+    expect(std::fabs(density_bias_100 - 0.01) < 1.0e-10);
+    expect(std::fabs(density_bias_100 - density_bias_200) < 1.0e-10);
+    const double legacy_bias_100 = bias_variance_after_one_second(100, false);
+    const double legacy_bias_200 = bias_variance_after_one_second(200, false);
+    expect(std::fabs(legacy_bias_200 / legacy_bias_100 - 0.5) < 1.0e-8);
 }
 
 void testPose3InertialEskfPoseCovarianceFloorIsConfigurable() {

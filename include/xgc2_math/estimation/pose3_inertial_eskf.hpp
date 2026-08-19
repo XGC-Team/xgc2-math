@@ -23,9 +23,8 @@ struct Pose3InertialEskfConfig {
     // flight estimator; online extrinsic calibration belongs in a separate estimator.
     bool estimate_extrinsic{false};
 
-    // When true, accel/gyro stds are continuous-time densities:
-    // (m/s²)/√Hz and (rad/s)/√Hz. False preserves legacy per-sample semantics.
-    // Bias random walk stds are always continuous-time densities.
+    // When true, accel/gyro and bias random-walk stds are continuous-time
+    // densities. False preserves the complete legacy per-sample semantics.
     bool imu_noise_std_is_density{false};
     double accel_noise_std{0.35};
     double gyro_noise_std{0.03};
@@ -925,8 +924,7 @@ class Pose3InertialEskf {
         // F = I + F_c dt with F_θθ = Exp(-[ω]× dt), F_θ,bg = -Jr(ω dt) dt.
         // Density mode uses the closed-form p/v blocks for continuous white
         // acceleration: Qpp=q dt³/3, Qpv=q dt²/2, Qvv=q dt. Legacy mode
-        // preserves the old per-sample white-noise discretization. Bias random
-        // walks are continuous densities in both modes.
+        // preserves the old per-sample discretization, including bias walks.
         const Eigen::Vector3d phi = omega_body * dt;
         const Eigen::Matrix3d jr = pose3_inertial_eskf_detail::so3RightJacobian(phi);
         const Eigen::Matrix3d accel_skew = pose3_inertial_eskf_detail::skewMatrix(accel_body);
@@ -961,10 +959,11 @@ class Pose3InertialEskf {
             Qd.block<3, 3>(3, 3) = accel_world_covariance * dt2;
             Qd.block<3, 3>(6, 6) = gyro_covariance * dt2;
         }
+        const double bias_dt = config_.imu_noise_std_is_density ? dt : dt2;
         Qd.block<3, 3>(9, 9).diagonal().setConstant(config_.gyro_bias_random_walk_std *
-                                                    config_.gyro_bias_random_walk_std * dt);
+                                                    config_.gyro_bias_random_walk_std * bias_dt);
         Qd.block<3, 3>(12, 12).diagonal().setConstant(config_.accel_bias_random_walk_std *
-                                                      config_.accel_bias_random_walk_std * dt);
+                                                      config_.accel_bias_random_walk_std * bias_dt);
 
         covariance_ = F * covariance_ * F.transpose() + Qd;
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
