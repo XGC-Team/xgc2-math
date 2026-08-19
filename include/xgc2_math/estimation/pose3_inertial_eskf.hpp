@@ -36,6 +36,11 @@ struct Pose3InertialEskfConfig {
     double pose_nis_gate{22.5};
     double covariance_high_threshold{100.0};
     double max_propagation_dt_s{0.01};
+    // Observation time window versus the IMU clock. Pose updates never move
+    // last_inertial_stamp_sec. VRPN at 30 Hz or 120 Hz uses the same rule:
+    // apply at the current IMU state, or reject if the stamp is far stale/future.
+    double pose_max_late_s{0.12};
+    double pose_max_early_s{0.12};
     double initial_position_variance{0.01};
     double initial_velocity_variance{0.1};
     double initial_orientation_variance{0.01};
@@ -162,6 +167,8 @@ inline void normalize(Pose3InertialEskfConfig& config) {
     config.pose_nis_gate = pose3_inertial_eskf_detail::positiveOr(config.pose_nis_gate, 22.5);
     config.covariance_high_threshold = pose3_inertial_eskf_detail::positiveOr(config.covariance_high_threshold, 100.0);
     config.max_propagation_dt_s = pose3_inertial_eskf_detail::positiveOr(config.max_propagation_dt_s, 0.01);
+    config.pose_max_late_s = pose3_inertial_eskf_detail::positiveOr(config.pose_max_late_s, 0.12);
+    config.pose_max_early_s = pose3_inertial_eskf_detail::positiveOr(config.pose_max_early_s, 0.12);
     config.initial_position_variance = pose3_inertial_eskf_detail::positiveOr(config.initial_position_variance, 0.01);
     config.initial_velocity_variance = pose3_inertial_eskf_detail::positiveOr(config.initial_velocity_variance, 0.1);
     config.initial_orientation_variance =
@@ -321,30 +328,22 @@ class Pose3InertialEskf {
             stampResultHealth(result);
             return result;
         }
-        // Pose timestamps are expected to already be on the client-local sensor timeline.
-        // Fusion is rate-agnostic: old local samples are rejected, future samples are
-        // reached by propagating with the latest IMU over the actual timestamp delta.
+        // IMU is the only process clock. A pose is an observation of the current
+        // IMU-time state, whether VRPN is slower or faster than the IMU. Do not
+        // hold-propagate IMU to the pose stamp (that would drop later IMU samples
+        // when VRPN is 120 Hz). Do not estimate link delay or rewrite stamps.
         if (!state_.initialized) {
             initializeFromPose(pose, has_last_inertial_ ? &last_inertial_ : nullptr);
             result.accepted = state_.initialized;
             stampResultHealth(result);
             return result;
         }
-        if (pose.stamp_sec + kMinDt < state_.last_inertial_stamp_sec) {
+        if (!measurementStampWithinImuWindow(pose.stamp_sec)) {
             result.time_alignment_rejected = true;
             result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
             vrpn_health_.recordRejected();
             stampResultHealth(result);
             return result;
-        }
-        if (pose.stamp_sec > state_.last_inertial_stamp_sec + kMinDt) {
-            if (!propagateMeasurementToStamp(pose.stamp_sec)) {
-                result.time_alignment_rejected = true;
-                result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
-                vrpn_health_.recordRejected();
-                stampResultHealth(result);
-                return result;
-            }
         }
         return updatePoseAtCurrentState(pose);
     }
@@ -363,17 +362,10 @@ class Pose3InertialEskf {
         if (!state_.initialized) {
             return result;
         }
-        if (velocity.stamp_sec + kMinDt < state_.last_inertial_stamp_sec) {
+        if (!measurementStampWithinImuWindow(velocity.stamp_sec)) {
             result.time_alignment_rejected = true;
             result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
             return result;
-        }
-        if (velocity.stamp_sec > state_.last_inertial_stamp_sec + kMinDt) {
-            if (!propagateMeasurementToStamp(velocity.stamp_sec)) {
-                result.time_alignment_rejected = true;
-                result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
-                return result;
-            }
         }
         return updateVelocityAtCurrentState(velocity);
     }
@@ -496,6 +488,7 @@ class Pose3InertialEskf {
         const ErrorCovariance identity = ErrorCovariance::Identity();
         covariance_ = (identity - K * H) * covariance_ * (identity - K * H).transpose() + K * R * K.transpose();
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
+        applyMeasurementCovarianceFloor();
         state_.last_pose_stamp_sec = pose.stamp_sec;
         state_.covariance_trace = covariance_.trace();
         corrected_body_pose_ = bodyPoseFromState(state_);
@@ -588,6 +581,19 @@ class Pose3InertialEskf {
                 value = minimum_variance;
             }
         }
+    }
+
+    void applyMeasurementCovarianceFloor() {
+        const double pos_std = config_.pose_position_noise_std;
+        const double ori_std = config_.pose_orientation_noise_std;
+        setMinimumCovarianceDiagonal(0, 0.25 * pos_std * pos_std);
+        setMinimumCovarianceDiagonal(6, 0.25 * ori_std * ori_std);
+        state_.covariance_trace = covariance_.trace();
+    }
+
+    bool measurementStampWithinImuWindow(double stamp_sec) const {
+        return stamp_sec + config_.pose_max_late_s >= state_.last_inertial_stamp_sec &&
+               stamp_sec <= state_.last_inertial_stamp_sec + config_.pose_max_early_s;
     }
 
     void rememberRawPoseMeasurement(const Pose3& body_pose_world, double stamp_sec) {
@@ -736,7 +742,8 @@ class Pose3InertialEskf {
         if (!has_last_inertial_ || !pose3_inertial_eskf_detail::validInertialSample(last_inertial_)) {
             return false;
         }
-        const double allowed_extrapolation = std::max(3.0 * config_.max_propagation_dt_s, kMinDt);
+        const double allowed_extrapolation =
+            std::max(std::max(3.0 * config_.max_propagation_dt_s, config_.pose_max_early_s), kMinDt);
         if (target_stamp_sec > state_.last_inertial_stamp_sec + allowed_extrapolation) {
             return false;
         }

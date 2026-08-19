@@ -982,7 +982,6 @@ void testPose3InertialEskfMultiRateSequentialPoseFusion() {
     imu.stamp_sec = 1.041;
     eskf.propagateInertial(imu);
     const auto held_state = eskf.state();
-    const double held_last_fused_stamp = eskf.lastFusedPoseStampS();
 
     auto time_jump_pose = InertialPoseTestSamples::pose(1.03, Eigen::Vector3d::Zero());
     time_jump_pose.time_jump = true;
@@ -990,27 +989,30 @@ void testPose3InertialEskfMultiRateSequentialPoseFusion() {
     expect(!time_jump_result.accepted);
     expect(time_jump_result.time_alignment_rejected);
 
-    const auto out_of_order_result =
-        eskf.updatePose(InertialPoseTestSamples::pose(1.017, Eigen::Vector3d(0.0002, 0.0, 0.0)));
-    expect(!out_of_order_result.accepted);
-    expect(out_of_order_result.time_alignment_rejected);
-    expect(out_of_order_result.reject_reason == xgc2_math::PoseFusionRejectReason::kTimeAlignment);
+    const auto late_within_window =
+        eskf.updatePose(InertialPoseTestSamples::pose(1.017, Eigen::Vector3d(0.02, 0.0, 0.0)));
+    expect(late_within_window.accepted);
+    expect(!late_within_window.time_alignment_rejected);
     expect(std::fabs(eskf.state().last_inertial_stamp_sec - held_state.last_inertial_stamp_sec) < 1.0e-12);
-    expect(std::fabs(eskf.lastFusedPoseStampS() - held_last_fused_stamp) < 1.0e-12);
-    expect((eskf.state().position - held_state.position).norm() < 1.0e-12);
+    expect(std::fabs(eskf.lastFusedPoseStampS() - 1.017) < 1.0e-12);
+    expect(eskf.state().position.x() > held_state.position.x() + 1.0e-4);
+
+    const auto far_future_pose = InertialPoseTestSamples::pose(held_state.last_inertial_stamp_sec + 0.30,
+                                                              Eigen::Vector3d(0.0035, 0.0, 0.0));
+    const auto far_future_result = eskf.updatePose(far_future_pose);
+    expect(!far_future_result.accepted);
+    expect(far_future_result.time_alignment_rejected);
+    expect(far_future_result.reject_reason == xgc2_math::PoseFusionRejectReason::kTimeAlignment);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - held_state.last_inertial_stamp_sec) < 1.0e-12);
 
     const auto stale_inertial_pose = InertialPoseTestSamples::pose(1.083, Eigen::Vector3d(0.0035, 0.0, 0.0));
-    const auto stale_inertial_result = eskf.updatePose(stale_inertial_pose);
-    expect(!stale_inertial_result.accepted);
-    expect(stale_inertial_result.time_alignment_rejected);
-    expect(stale_inertial_result.reject_reason == xgc2_math::PoseFusionRejectReason::kTimeAlignment);
-    expect(std::fabs(eskf.state().last_inertial_stamp_sec - held_state.last_inertial_stamp_sec) < 1.0e-12);
 
     auto imu2 =
         InertialPoseTestSamples::inertial(1.083, Eigen::Vector3d(0.2, -0.1, 0.03), Eigen::Vector3d(1.0, 0.0, 9.8066));
     eskf.propagateInertial(imu2);
     expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.083) < 1.0e-12);
-    expect((eskf.state().angular_velocity - imu2.angular_velocity).norm() < 1.0e-12);
+    const Eigen::Vector3d expected_rate = imu2.angular_velocity - eskf.state().gyro_bias;
+    expect((eskf.state().angular_velocity - expected_rate).norm() < 1.0e-12);
 
     const auto accepted_result = eskf.updatePose(stale_inertial_pose);
     expect(accepted_result.accepted);
@@ -1023,6 +1025,22 @@ void testPose3InertialEskfMultiRateSequentialPoseFusion() {
     expect(!rejected.accepted);
     expect(rejected.time_alignment_rejected);
     expect(rejected.reject_reason == xgc2_math::PoseFusionRejectReason::kTimeAlignment);
+}
+
+void testPose3InertialEskfFasterPoseDoesNotMoveImuClock() {
+    xgc2_math::Pose3InertialEskf eskf;
+    eskf.setConfig({});
+    const auto imu0 = InertialPoseTestSamples::inertial(1.0);
+    eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+    auto imu = InertialPoseTestSamples::inertial(1.01);
+    eskf.propagateInertial(imu);
+    const double imu_stamp = eskf.state().last_inertial_stamp_sec;
+    expect(eskf.updatePose(InertialPoseTestSamples::pose(1.012, Eigen::Vector3d(0.008, 0.0, 0.0))).accepted);
+    expect(eskf.updatePose(InertialPoseTestSamples::pose(1.016, Eigen::Vector3d(0.010, 0.0, 0.0))).accepted);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - imu_stamp) < 1.0e-12);
+    imu.stamp_sec = 1.02;
+    eskf.propagateInertial(imu);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.02) < 1.0e-12);
 }
 
 void testPose3InertialEskfMeasurementJacobianMatchesFiniteDifference() {
@@ -1519,6 +1537,7 @@ int main() {
     testPose3InertialEskfPoseUpdateRefreshesDerivedImuState();
     testPose3InertialEskfFixedOfflineExtrinsic();
     testPose3InertialEskfMultiRateSequentialPoseFusion();
+    testPose3InertialEskfFasterPoseDoesNotMoveImuClock();
     testPose3InertialEskfMeasurementJacobianMatchesFiniteDifference();
     testPose3InertialEskfVrpnHealthTransitions();
     testTrajectoryAndNmpcProblemContracts();
