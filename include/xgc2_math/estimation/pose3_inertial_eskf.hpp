@@ -738,18 +738,6 @@ class Pose3InertialEskf {
             state_.gravity;
     }
 
-    bool propagateMeasurementToStamp(double target_stamp_sec) {
-        if (!has_last_inertial_ || !pose3_inertial_eskf_detail::validInertialSample(last_inertial_)) {
-            return false;
-        }
-        const double allowed_extrapolation =
-            std::max(std::max(3.0 * config_.max_propagation_dt_s, config_.pose_max_early_s), kMinDt);
-        if (target_stamp_sec > state_.last_inertial_stamp_sec + allowed_extrapolation) {
-            return false;
-        }
-        return propagateToStamp(last_inertial_, target_stamp_sec);
-    }
-
     void integrateInertialStepMidpoint(const InertialSample& previous, const InertialSample& current, double dt) {
         integrateInertialStepWithReadings(0.5 * (previous.angular_velocity + current.angular_velocity),
                                           0.5 * (previous.linear_acceleration + current.linear_acceleration), dt);
