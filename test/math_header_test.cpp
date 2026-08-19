@@ -997,8 +997,8 @@ void testPose3InertialEskfMultiRateSequentialPoseFusion() {
     expect(std::fabs(eskf.lastFusedPoseStampS() - 1.017) < 1.0e-12);
     expect(eskf.state().position.x() > held_state.position.x() + 1.0e-4);
 
-    const auto far_future_pose = InertialPoseTestSamples::pose(held_state.last_inertial_stamp_sec + 0.30,
-                                                              Eigen::Vector3d(0.0035, 0.0, 0.0));
+    const auto far_future_pose =
+        InertialPoseTestSamples::pose(held_state.last_inertial_stamp_sec + 0.30, Eigen::Vector3d(0.0035, 0.0, 0.0));
     const auto far_future_result = eskf.updatePose(far_future_pose);
     expect(!far_future_result.accepted);
     expect(far_future_result.time_alignment_rejected);
