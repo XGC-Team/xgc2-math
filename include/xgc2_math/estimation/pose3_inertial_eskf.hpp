@@ -32,8 +32,17 @@ struct Pose3InertialEskfConfig {
     double accel_bias_random_walk_std{1.0e-3};
     double extrinsic_position_random_walk_std{1.0e-5};
     double extrinsic_orientation_random_walk_std{1.0e-5};
+    // Consecutive raw VRPN jump: reject. Accepted poses always fuse.
     double innovation_position_gate_m{1.5};
     double innovation_orientation_gate_rad{0.8};
+    // After a trusted pose, keep P_pp so the next K_p ≈ this (K = P/(P+R)).
+    // 0.9 means listen to VRPN. Old 0.25 R floor was K_p = 0.2 (listen to IMU).
+    double pose_position_kalman_gain{0.9};
+    double pose_orientation_kalman_gain{0.8};
+    // IESKF: relinearize H at the updated nominal state. 1 = classic ESKF.
+    // FAST-LIO2 NUM_MAX_ITERATIONS analogue.
+    int pose_update_iterations{3};
+    double pose_update_convergence{1.0e-5};
     double velocity_innovation_gate_mps{3.0};
     double pose_nis_gate{22.5};
     double covariance_high_threshold{100.0};
@@ -113,6 +122,18 @@ inline double nonNegativeOr(double value, double fallback) {
     return std::isfinite(value) && value >= 0.0 ? value : fallback;
 }
 
+inline double clampUnit(double value, double fallback) {
+    if (!std::isfinite(value) || value <= 0.0 || value >= 1.0) {
+        return fallback;
+    }
+    return value;
+}
+
+inline double kalmanGainToVarianceFloor(double gain, double measurement_variance) {
+    const double g = std::min(std::max(gain, 0.05), 0.95);
+    return (g / (1.0 - g)) * measurement_variance;
+}
+
 inline bool validInertialSample(const InertialSample& sample) {
     return sample.received && sample.valid && std::isfinite(sample.stamp_sec) && isFinite(sample.angular_velocity) &&
            isFinite(sample.linear_acceleration);
@@ -138,6 +159,27 @@ inline Eigen::Matrix3d skewMatrix(const Eigen::Vector3d& value) {
     result(2, 1) = value.x();
     result(2, 2) = 0.0;
     return result;
+}
+
+inline Eigen::Matrix3d so3RightJacobian(const Eigen::Vector3d& phi) {
+    const double theta = phi.norm();
+    const Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();
+    if (!std::isfinite(theta) || theta <= 1.0e-12) {
+        return identity;
+    }
+    const Eigen::Matrix3d skew = skewMatrix(phi);
+    const double theta2 = theta * theta;
+    return identity - ((1.0 - std::cos(theta)) / theta2) * skew +
+           ((theta - std::sin(theta)) / (theta2 * theta)) * (skew * skew);
+}
+
+inline Eigen::Matrix3d so3LeftJacobian(const Eigen::Vector3d& phi) { return so3RightJacobian(-phi); }
+
+inline int poseIterationsOr(int value, int fallback) {
+    if (value < 1) {
+        return fallback;
+    }
+    return std::min(value, 8);
 }
 
 inline Eigen::Matrix<double, 6, 1> normalizedInnovation(Eigen::Matrix<double, 6, 1> value) {
@@ -166,6 +208,12 @@ inline void normalize(Pose3InertialEskfConfig& config) {
     config.innovation_position_gate_m = pose3_inertial_eskf_detail::positiveOr(config.innovation_position_gate_m, 1.5);
     config.innovation_orientation_gate_rad =
         pose3_inertial_eskf_detail::positiveOr(config.innovation_orientation_gate_rad, 0.8);
+    config.pose_position_kalman_gain = pose3_inertial_eskf_detail::clampUnit(config.pose_position_kalman_gain, 0.9);
+    config.pose_orientation_kalman_gain =
+        pose3_inertial_eskf_detail::clampUnit(config.pose_orientation_kalman_gain, 0.8);
+    config.pose_update_iterations = pose3_inertial_eskf_detail::poseIterationsOr(config.pose_update_iterations, 3);
+    config.pose_update_convergence =
+        pose3_inertial_eskf_detail::positiveOr(config.pose_update_convergence, 1.0e-5);
     config.velocity_innovation_gate_mps =
         pose3_inertial_eskf_detail::positiveOr(config.velocity_innovation_gate_mps, 3.0);
     config.pose_nis_gate = pose3_inertial_eskf_detail::positiveOr(config.pose_nis_gate, 22.5);
@@ -560,6 +608,7 @@ class Pose3InertialEskf {
 
         const Pose3 marker_world = markerPoseInWorld(pose.pose);
         const Pose3 measured_body_world = bodyPoseFromMarkerPose(marker_world, state_.body_to_marker);
+        // Consecutive raw measurement jump (ID hop / flyer), not filter lag.
         if (rawPoseMeasurementJumped(measured_body_world)) {
             result.innovation_rejected = true;
             result.reject_reason = PoseFusionRejectReason::kInnovationGate;
@@ -570,29 +619,96 @@ class Pose3InertialEskf {
         }
 
         const Pose3 predicted_marker = predictedMarkerPose(state_);
-        const MeasurementVector innovation = measurementResidual(predicted_marker, marker_world);
-        result.position_innovation_norm = innovation.head<3>().norm();
-        result.orientation_innovation_norm = innovation.tail<3>().norm();
+        const MeasurementVector first_innovation = measurementResidual(predicted_marker, marker_world);
+        result.position_innovation_norm = first_innovation.head<3>().norm();
+        result.orientation_innovation_norm = first_innovation.tail<3>().norm();
         const bool needs_pose_recapture = result.position_innovation_norm > config_.innovation_position_gate_m ||
                                           result.orientation_innovation_norm > config_.innovation_orientation_gate_rad;
         if (needs_pose_recapture) {
             inflatePoseRecaptureCovariance();
         }
+        // H has no velocity columns (VRPN measures pose). K_v lives in P_pv.
+        // Joseph with K_v≈0, then the P_pp floor, kills that cross term, so a
+        // leftover v coasts through rewind+IMU as a sawtooth. Restore
+        // kinematic P_pv only when the pose residual looks like that coast —
+        // not VRPN twist, not Δp/Δt as a measurement, and not every pose
+        // (forcing K_v=1/Δt on process error diverges).
+        couplePositionVelocityForPoseGap(pose.stamp_sec, predicted_marker, marker_world);
 
-        const MeasurementMatrix H = measurementJacobian(predicted_marker, innovation);
+        // IESKF (FAST-LIO / IKFoM): relinearize H at x_κ, keep P at the IMU
+        // prediction, and apply dx = -K inn + (KH - I)(x_κ ⊖ x_pred) so later
+        // iterations do not re-apply the same P as if the state were still at
+        // the prediction. Joseph form once after the last iterate.
+        const RigidBodyState x_pred = state_;
+        const ErrorCovariance P_prop = covariance_;
         const MeasurementCovariance R = measurementCovariance();
-        const MeasurementCovariance S = H * covariance_ * H.transpose() + R;
-        Eigen::LDLT<MeasurementCovariance> ldlt;
-        ldlt.compute(S);
-        if (ldlt.info() != Eigen::Success || !S.allFinite()) {
-            result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
-            vrpn_health_.recordRejected();
-            stampResultHealth(result);
-            return result;
-        }
+        MeasurementMatrix H = MeasurementMatrix::Zero();
+        Eigen::Matrix<double, kErrorStateDim, 6> K;
+        K.setZero();
+        ErrorCovariance P_iter = P_prop;
+        MeasurementVector innovation = first_innovation;
+        bool fused = false;
+        for (int iter = 0; iter < config_.pose_update_iterations; ++iter) {
+            const Pose3 iter_predicted = predictedMarkerPose(state_);
+            innovation = measurementResidual(iter_predicted, marker_world);
+            H = measurementJacobian(iter_predicted, innovation);
 
-        result.mahalanobis_distance = innovation.transpose() * ldlt.solve(innovation);
-        if (!std::isfinite(result.mahalanobis_distance)) {
+            const ErrorVector dx = errorStateMinus(state_, x_pred);
+            const Eigen::Vector3d phi = dx.segment<3>(6);
+            const Eigen::Matrix3d attitude_jl_transpose =
+                pose3_inertial_eskf_detail::so3LeftJacobian(phi).transpose();
+            ErrorVector dx_new = dx;
+            dx_new.segment<3>(6) = attitude_jl_transpose * phi;
+
+            P_iter = P_prop;
+            const Eigen::Matrix<double, 3, kErrorStateDim> p_theta_rows =
+                attitude_jl_transpose * P_iter.block<3, kErrorStateDim>(6, 0);
+            P_iter.block<3, kErrorStateDim>(6, 0) = p_theta_rows;
+            const Eigen::Matrix<double, kErrorStateDim, 3> p_theta_cols =
+                P_iter.block<kErrorStateDim, 3>(0, 6) * attitude_jl_transpose.transpose();
+            P_iter.block<kErrorStateDim, 3>(0, 6) = p_theta_cols;
+            P_iter = 0.5 * (P_iter + P_iter.transpose());
+
+            const MeasurementCovariance S = H * P_iter * H.transpose() + R;
+            Eigen::LDLT<MeasurementCovariance> ldlt;
+            ldlt.compute(S);
+            if (ldlt.info() != Eigen::Success || !S.allFinite()) {
+                if (!fused) {
+                    result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
+                    vrpn_health_.recordRejected();
+                    stampResultHealth(result);
+                    return result;
+                }
+                break;
+            }
+            if (iter == 0) {
+                result.mahalanobis_distance = innovation.transpose() * ldlt.solve(innovation);
+                if (!std::isfinite(result.mahalanobis_distance)) {
+                    result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
+                    vrpn_health_.recordRejected();
+                    stampResultHealth(result);
+                    return result;
+                }
+            }
+            K = P_iter * H.transpose() * ldlt.solve(MeasurementCovariance::Identity());
+            const ErrorVector delta = -K * innovation + (K * H - ErrorCovariance::Identity()) * dx_new;
+            if (!delta.allFinite()) {
+                if (!fused) {
+                    result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
+                    vrpn_health_.recordRejected();
+                    stampResultHealth(result);
+                    return result;
+                }
+                break;
+            }
+            injectError(delta);
+            refreshDerivedInertialState();
+            fused = true;
+            if (delta.head<6>().norm() < config_.pose_update_convergence) {
+                break;
+            }
+        }
+        if (!fused) {
             result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
             vrpn_health_.recordRejected();
             stampResultHealth(result);
@@ -603,22 +719,8 @@ class Pose3InertialEskf {
         // permanently switch the estimator to IMU-only.
         vrpn_health_.recordAccepted(result.mahalanobis_distance);
 
-        const Eigen::Matrix<double, kErrorStateDim, 6> K =
-            covariance_ * H.transpose() * ldlt.solve(MeasurementCovariance::Identity());
-        // H is d residual / d error_state for se3Error(predicted, measured), so the correction
-        // moves against the residual gradient.
-        const ErrorVector delta = -K * innovation;
-        if (!delta.allFinite()) {
-            result.reject_reason = PoseFusionRejectReason::kNumericalFailure;
-            vrpn_health_.recordRejected();
-            stampResultHealth(result);
-            return result;
-        }
-        injectError(delta);
-        refreshDerivedInertialState();
-
         const ErrorCovariance identity = ErrorCovariance::Identity();
-        covariance_ = (identity - K * H) * covariance_ * (identity - K * H).transpose() + K * R * K.transpose();
+        covariance_ = (identity - K * H) * P_iter * (identity - K * H).transpose() + K * R * K.transpose();
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
         applyMeasurementCovarianceFloor();
         state_.last_pose_stamp_sec = pose.stamp_sec;
@@ -709,21 +811,94 @@ class Pose3InertialEskf {
         state_.covariance_trace = covariance_.trace();
     }
 
+    void scaleDiagonalToMinimum(int index, double minimum_variance) {
+        double& value = covariance_(index, index);
+        if (!std::isfinite(value) || value <= 0.0) {
+            value = minimum_variance;
+            return;
+        }
+        if (value >= minimum_variance) {
+            return;
+        }
+        const double scale = std::sqrt(minimum_variance / value);
+        for (int j = 0; j < kErrorStateDim; ++j) {
+            if (j == index) {
+                continue;
+            }
+            covariance_(index, j) *= scale;
+            covariance_(j, index) *= scale;
+        }
+        value = minimum_variance;
+    }
+
     void setMinimumCovarianceDiagonal(int start_index, double minimum_variance) {
         for (int i = 0; i < 3; ++i) {
-            double& value = covariance_(start_index + i, start_index + i);
-            if (!std::isfinite(value) || value < minimum_variance) {
-                value = minimum_variance;
-            }
+            scaleDiagonalToMinimum(start_index + i, minimum_variance);
         }
     }
 
     void applyMeasurementCovarianceFloor() {
-        const double pos_std = config_.pose_position_noise_std;
-        const double ori_std = config_.pose_orientation_noise_std;
-        setMinimumCovarianceDiagonal(0, 0.25 * pos_std * pos_std);
-        setMinimumCovarianceDiagonal(6, 0.25 * ori_std * ori_std);
+        const double r_pos = config_.pose_position_noise_std * config_.pose_position_noise_std;
+        const double r_ori = config_.pose_orientation_noise_std * config_.pose_orientation_noise_std;
+        setMinimumCovarianceDiagonal(
+            0, pose3_inertial_eskf_detail::kalmanGainToVarianceFloor(config_.pose_position_kalman_gain, r_pos));
+        setMinimumCovarianceDiagonal(
+            6, pose3_inertial_eskf_detail::kalmanGainToVarianceFloor(config_.pose_orientation_kalman_gain, r_ori));
+        // Do not reinflate P_pv here. Unbounded ρ(p,v) after Joseph diverges.
+        // The next pose restore is couplePositionVelocityForPoseGap on P_pred.
+        covariance_ = 0.5 * (covariance_ + covariance_.transpose());
         state_.covariance_trace = covariance_.trace();
+    }
+
+    void couplePositionVelocityForPoseGap(double pose_stamp_sec, const Pose3& predicted_marker,
+                                          const Pose3& measured_marker) {
+        if (!std::isfinite(pose_stamp_sec) || last_fused_pose_stamp_sec_ <= 0.0) {
+            return;
+        }
+        const double dt = pose_stamp_sec - last_fused_pose_stamp_sec_;
+        // Client stamps a drained UDP batch a millisecond apart. Coupling on
+        // that dt makes K_v huge and yanks v from noise. Leftover v was built
+        // on the preceding 30–200 ms gap.
+        if (!std::isfinite(dt) || dt < 0.02) {
+            return;
+        }
+        const Eigen::Vector3d coast_error = predicted_marker.position - measured_marker.position;
+        const Eigen::Vector3d velocity = state_.velocity;
+        const double coast_norm = coast_error.norm();
+        const double velocity_norm = velocity.norm();
+        const double sigma = pose3_inertial_eskf_detail::positiveOr(config_.pose_position_noise_std, 0.01);
+        // Only the leftover-v sawtooth: prediction ran past the marker along
+        // current v. Process-model lag (wrong accel axis) is not ν≈v·dt and
+        // must not be turned into Δv=ν/dt.
+        if (!(coast_norm > 3.0 * sigma) || velocity_norm < 0.05) {
+            return;
+        }
+        if (coast_error.dot(velocity) < 0.3 * coast_norm * velocity_norm) {
+            return;
+        }
+        if (coast_norm > 2.0 * velocity_norm * dt + 5.0 * sigma) {
+            return;
+        }
+        const double r_pos = sigma * sigma;
+        const double vv_cap = std::max(config_.initial_velocity_variance, 0.1);
+        for (int i = 0; i < 3; ++i) {
+            const double pp = std::max(covariance_(i, i), 0.0);
+            const double innovation_variance = pp + r_pos;
+            if (!(innovation_variance > 0.0) || !(pp > 0.0)) {
+                continue;
+            }
+            const double pv_for_gain = innovation_variance / dt;
+            const double vv_needed = (pv_for_gain / 0.99) * (pv_for_gain / 0.99) / pp;
+            scaleDiagonalToMinimum(3 + i, std::min(vv_needed, vv_cap));
+            const double vv = std::max(covariance_(3 + i, 3 + i), 0.0);
+            const double pv_psd = 0.99 * std::sqrt(pp * vv);
+            const double target = std::min(pv_for_gain, pv_psd);
+            if (covariance_(i, 3 + i) < target) {
+                covariance_(i, 3 + i) = target;
+                covariance_(3 + i, i) = target;
+            }
+        }
+        covariance_ = 0.5 * (covariance_ + covariance_.transpose());
     }
 
     bool measurementStampWithinImuWindow(double stamp_sec) const {
@@ -807,29 +982,54 @@ class Pose3InertialEskf {
         return H;
     }
 
-    void propagateCovariance(const Eigen::Vector3d& accel_body, const Eigen::Matrix3d& rotation, double dt) {
-        ErrorCovariance F = ErrorCovariance::Identity();
+    void propagateCovariance(const Eigen::Vector3d& accel_body, const Eigen::Vector3d& omega_body,
+                             const Eigen::Matrix3d& rotation, double dt) {
+        // Discrete IESKF process (FAST-LIO2 use-ikfom df_dx / df_dw, 15-state
+        // subset: no gravity manifold, no lidar extrinsics).
+        // F = I + F_c dt with F_θθ = Exp(-[ω]× dt), F_θ,bg = -Jr(ω dt) dt.
+        // Q = G Qc G^T so accel noise enters v (and p through G_p) together;
+        // independent diagonal Q_pp/Q_vv does not build P_pv.
+        const Eigen::Vector3d phi = omega_body * dt;
+        const Eigen::Matrix3d jr = pose3_inertial_eskf_detail::so3RightJacobian(phi);
         const Eigen::Matrix3d accel_skew = pose3_inertial_eskf_detail::skewMatrix(accel_body);
 
+        ErrorCovariance F = ErrorCovariance::Identity();
+        F.block<3, 3>(6, 6) = expMap(-phi).toRotationMatrix();
         F.block<3, 3>(0, 3) = Eigen::Matrix3d::Identity() * dt;
         F.block<3, 3>(0, 6) = -0.5 * rotation * accel_skew * dt * dt;
         F.block<3, 3>(0, 12) = -0.5 * rotation * dt * dt;
         F.block<3, 3>(3, 6) = -rotation * accel_skew * dt;
         F.block<3, 3>(3, 12) = -rotation * dt;
-        F.block<3, 3>(6, 9) = -Eigen::Matrix3d::Identity() * dt;
+        F.block<3, 3>(6, 9) = -jr * dt;
 
-        ErrorCovariance Q = ErrorCovariance::Zero();
-        const double accel_var = config_.accel_noise_std * config_.accel_noise_std;
-        const double gyro_var = config_.gyro_noise_std * config_.gyro_noise_std;
-        Q.block<3, 3>(0, 0).diagonal().setConstant(0.25 * accel_var * dt * dt * dt * dt);
-        Q.block<3, 3>(3, 3).diagonal().setConstant(accel_var * dt * dt);
-        Q.block<3, 3>(6, 6).diagonal().setConstant(gyro_var * dt * dt);
-        Q.block<3, 3>(9, 9).diagonal().setConstant(config_.gyro_bias_random_walk_std *
-                                                   config_.gyro_bias_random_walk_std * dt);
-        Q.block<3, 3>(12, 12).diagonal().setConstant(config_.accel_bias_random_walk_std *
-                                                     config_.accel_bias_random_walk_std * dt);
-        covariance_ = F * covariance_ * F.transpose() + Q;
+        Eigen::Matrix<double, kErrorStateDim, 12> G = Eigen::Matrix<double, kErrorStateDim, 12>::Zero();
+        G.block<3, 3>(6, 0) = -jr * dt;
+        G.block<3, 3>(3, 3) = -rotation * dt;
+        G.block<3, 3>(0, 3) = -0.5 * rotation * dt * dt;
+        G.block<3, 3>(9, 6) = Eigen::Matrix3d::Identity() * dt;
+        G.block<3, 3>(12, 9) = Eigen::Matrix3d::Identity() * dt;
+
+        Eigen::Matrix<double, 12, 12> process_noise = Eigen::Matrix<double, 12, 12>::Zero();
+        process_noise.diagonal().segment<3>(0).setConstant(config_.gyro_noise_std * config_.gyro_noise_std);
+        process_noise.diagonal().segment<3>(3).setConstant(config_.accel_noise_std * config_.accel_noise_std);
+        process_noise.diagonal().segment<3>(6).setConstant(config_.gyro_bias_random_walk_std *
+                                                          config_.gyro_bias_random_walk_std);
+        process_noise.diagonal().segment<3>(9).setConstant(config_.accel_bias_random_walk_std *
+                                                          config_.accel_bias_random_walk_std);
+
+        covariance_ = F * covariance_ * F.transpose() + G * process_noise * G.transpose();
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
+    }
+
+    ErrorVector errorStateMinus(const RigidBodyState& current, const RigidBodyState& predicted) const {
+        ErrorVector dx = ErrorVector::Zero();
+        dx.segment<3>(0) = current.position - predicted.position;
+        dx.segment<3>(3) = current.velocity - predicted.velocity;
+        dx.segment<3>(6) =
+            logMap(normalizedQuaternion(predicted.orientation.conjugate() * current.orientation));
+        dx.segment<3>(9) = current.gyro_bias - predicted.gyro_bias;
+        dx.segment<3>(12) = current.accel_bias - predicted.accel_bias;
+        return dx;
     }
 
     void injectError(const ErrorVector& delta) { injectError(delta, state_); }
@@ -855,7 +1055,7 @@ class Pose3InertialEskf {
         state_.position += state_.velocity * dt + 0.5 * acceleration_world * dt * dt;
         state_.velocity += acceleration_world * dt;
         state_.orientation = normalizedQuaternion(old_orientation * expMap(state_.angular_velocity * dt));
-        propagateCovariance(accel_body, rotation, dt);
+        propagateCovariance(accel_body, state_.angular_velocity, rotation, dt);
         state_.covariance_trace = covariance_.trace();
     }
 
