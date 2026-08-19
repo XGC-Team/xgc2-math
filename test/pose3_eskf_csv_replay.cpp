@@ -28,9 +28,10 @@ double atofCol(const std::vector<std::string>& cols, std::size_t i) {
     return i < cols.size() ? std::atof(cols[i].c_str()) : 0.0;
 }
 
-xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s) {
+xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s, double body_to_marker_yaw_rad) {
     xgc2_math::Pose3InertialEskfConfig config;
     config.gravity_mps2 = 9.8066;
+    config.body_to_marker.orientation = xgc2_math::rpyToQuaternion(Eigen::Vector3d(0.0, 0.0, body_to_marker_yaw_rad));
     config.accel_noise_std = 0.35;
     config.gyro_noise_std = 0.03;
     config.pose_position_noise_std = 0.01;
@@ -59,11 +60,12 @@ xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s) {
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 3 && argc != 4) {
-        std::cerr << "usage: pose3_eskf_csv_replay events.csv state.csv [delay_s]\n";
+    if (argc < 3 || argc > 5) {
+        std::cerr << "usage: pose3_eskf_csv_replay events.csv state.csv [delay_s] [body_to_marker_yaw_rad]\n";
         return 2;
     }
-    const double delay_s = argc == 4 ? std::atof(argv[3]) : 0.0;
+    const double delay_s = argc >= 4 ? std::atof(argv[3]) : 0.0;
+    const double body_to_marker_yaw_rad = argc >= 5 ? std::atof(argv[4]) : 0.0;
 
     std::ifstream in(argv[1]);
     if (!in) {
@@ -77,7 +79,7 @@ int main(int argc, char** argv) {
     }
 
     xgc2_math::Pose3InertialEskf eskf;
-    eskf.setConfig(bagConfig(delay_s));
+    eskf.setConfig(bagConfig(delay_s, body_to_marker_yaw_rad));
     int pose_accepted = 0;
     int pose_ta = 0;
     int imu_n = 0;

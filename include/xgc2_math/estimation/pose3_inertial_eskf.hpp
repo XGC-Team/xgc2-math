@@ -175,7 +175,9 @@ inline Eigen::Matrix3d so3RightJacobian(const Eigen::Vector3d& phi) {
            ((theta - std::sin(theta)) / (theta2 * theta)) * (skew * skew);
 }
 
-inline Eigen::Matrix3d so3LeftJacobian(const Eigen::Vector3d& phi) { return so3RightJacobian(-phi); }
+inline Eigen::Matrix3d so3LeftJacobian(const Eigen::Vector3d& phi) {
+    return so3RightJacobian(-phi);
+}
 
 inline int poseIterationsOr(int value, int fallback) {
     if (value < 1) {
@@ -214,8 +216,7 @@ inline void normalize(Pose3InertialEskfConfig& config) {
     config.pose_orientation_kalman_gain =
         pose3_inertial_eskf_detail::clampUnit(config.pose_orientation_kalman_gain, 0.8);
     config.pose_update_iterations = pose3_inertial_eskf_detail::poseIterationsOr(config.pose_update_iterations, 3);
-    config.pose_update_convergence =
-        pose3_inertial_eskf_detail::positiveOr(config.pose_update_convergence, 1.0e-5);
+    config.pose_update_convergence = pose3_inertial_eskf_detail::positiveOr(config.pose_update_convergence, 1.0e-5);
     config.velocity_innovation_gate_mps =
         pose3_inertial_eskf_detail::positiveOr(config.velocity_innovation_gate_mps, 3.0);
     config.pose_nis_gate = pose3_inertial_eskf_detail::positiveOr(config.pose_nis_gate, 22.5);
@@ -641,17 +642,15 @@ class Pose3InertialEskf {
         Eigen::Matrix<double, kErrorStateDim, 6> K;
         K.setZero();
         ErrorCovariance P_iter = P_prop;
-        MeasurementVector innovation = first_innovation;
         bool fused = false;
         for (int iter = 0; iter < config_.pose_update_iterations; ++iter) {
             const Pose3 iter_predicted = predictedMarkerPose(state_);
-            innovation = measurementResidual(iter_predicted, marker_world);
+            const MeasurementVector innovation = measurementResidual(iter_predicted, marker_world);
             H = measurementJacobian(iter_predicted, innovation);
 
             const ErrorVector dx = errorStateMinus(state_, x_pred);
             const Eigen::Vector3d phi = dx.segment<3>(6);
-            const Eigen::Matrix3d attitude_jl_transpose =
-                pose3_inertial_eskf_detail::so3LeftJacobian(phi).transpose();
+            const Eigen::Matrix3d attitude_jl_transpose = pose3_inertial_eskf_detail::so3LeftJacobian(phi).transpose();
             ErrorVector dx_new = dx;
             dx_new.segment<3>(6) = attitude_jl_transpose * phi;
 
@@ -959,9 +958,9 @@ class Pose3InertialEskf {
         process_noise.diagonal().segment<3>(0).setConstant(config_.gyro_noise_std * config_.gyro_noise_std * inv_dt);
         process_noise.diagonal().segment<3>(3).setConstant(config_.accel_noise_std * config_.accel_noise_std * inv_dt);
         process_noise.diagonal().segment<3>(6).setConstant(config_.gyro_bias_random_walk_std *
-                                                          config_.gyro_bias_random_walk_std * inv_dt);
+                                                           config_.gyro_bias_random_walk_std * inv_dt);
         process_noise.diagonal().segment<3>(9).setConstant(config_.accel_bias_random_walk_std *
-                                                          config_.accel_bias_random_walk_std * inv_dt);
+                                                           config_.accel_bias_random_walk_std * inv_dt);
 
         covariance_ = F * covariance_ * F.transpose() + G * process_noise * G.transpose();
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
@@ -971,8 +970,7 @@ class Pose3InertialEskf {
         ErrorVector dx = ErrorVector::Zero();
         dx.segment<3>(0) = current.position - predicted.position;
         dx.segment<3>(3) = current.velocity - predicted.velocity;
-        dx.segment<3>(6) =
-            logMap(normalizedQuaternion(predicted.orientation.conjugate() * current.orientation));
+        dx.segment<3>(6) = logMap(normalizedQuaternion(predicted.orientation.conjugate() * current.orientation));
         dx.segment<3>(9) = current.gyro_bias - predicted.gyro_bias;
         dx.segment<3>(12) = current.accel_bias - predicted.accel_bias;
         return dx;

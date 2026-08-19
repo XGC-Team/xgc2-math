@@ -143,13 +143,9 @@ inline bool appendSample(std::vector<SampledPoint2>& samples, SampledPoint2 samp
 
 inline uint32_t validateSamples(const std::vector<SampledPoint2>& samples, const Se2TargetTrajectoryOptions2& options) {
     SampledEvaluator2 evaluator;
-    bool preserve = false;
-    for (const auto& sample : samples) {
-        if ((sample.reference.flags & kFlagExplicitPlanarKinematics) != 0U || sample.reference.speed < 0.0) {
-            preserve = true;
-            break;
-        }
-    }
+    const bool preserve = std::any_of(samples.begin(), samples.end(), [](const SampledPoint2& sample) {
+        return (sample.reference.flags & kFlagExplicitPlanarKinematics) != 0U || sample.reference.speed < 0.0;
+    });
     if (!evaluator.setSamples(samples, preserve)) {
         return kFlagInvalidInput;
     }
@@ -274,7 +270,7 @@ inline bool appendTrapezoidChord(const Eigen::Vector2d& from, const Eigen::Vecto
             continue;
         }
         const double t = t_move * static_cast<double>(i) / static_cast<double>(count);
-        double s = dist;
+        double s;
         double v = 0.0;
         double a = 0.0;
         if (t < t_acc) {
