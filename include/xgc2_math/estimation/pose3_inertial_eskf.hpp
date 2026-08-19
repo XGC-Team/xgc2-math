@@ -23,6 +23,8 @@ struct Pose3InertialEskfConfig {
     // flight estimator; online extrinsic calibration belongs in a separate estimator.
     bool estimate_extrinsic{false};
 
+    // Continuous-time densities, not per-IMU-sample std. Accel/gyro white noise:
+    // (m/s²)/√Hz and (rad/s)/√Hz. Bias random walk: (m/s²)/√s and (rad/s)/√s.
     double accel_noise_std{0.35};
     double gyro_noise_std{0.03};
     double pose_position_noise_std{0.01};
@@ -627,13 +629,6 @@ class Pose3InertialEskf {
         if (needs_pose_recapture) {
             inflatePoseRecaptureCovariance();
         }
-        // H has no velocity columns (VRPN measures pose). K_v lives in P_pv.
-        // Joseph with K_v≈0, then the P_pp floor, kills that cross term, so a
-        // leftover v coasts through rewind+IMU as a sawtooth. Restore
-        // kinematic P_pv only when the pose residual looks like that coast —
-        // not VRPN twist, not Δp/Δt as a measurement, and not every pose
-        // (forcing K_v=1/Δt on process error diverges).
-        couplePositionVelocityForPoseGap(pose.stamp_sec, predicted_marker, marker_world);
 
         // IESKF (FAST-LIO / IKFoM): relinearize H at x_κ, keep P at the IMU
         // prediction, and apply dx = -K inn + (KH - I)(x_κ ⊖ x_pred) so later
@@ -844,61 +839,9 @@ class Pose3InertialEskf {
             0, pose3_inertial_eskf_detail::kalmanGainToVarianceFloor(config_.pose_position_kalman_gain, r_pos));
         setMinimumCovarianceDiagonal(
             6, pose3_inertial_eskf_detail::kalmanGainToVarianceFloor(config_.pose_orientation_kalman_gain, r_ori));
-        // Do not reinflate P_pv here. Unbounded ρ(p,v) after Joseph diverges.
-        // The next pose restore is couplePositionVelocityForPoseGap on P_pred.
+        // P_pv is rebuilt by IMU (F, G Qc G^T). Do not reinflate ρ(p,v) here.
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
         state_.covariance_trace = covariance_.trace();
-    }
-
-    void couplePositionVelocityForPoseGap(double pose_stamp_sec, const Pose3& predicted_marker,
-                                          const Pose3& measured_marker) {
-        if (!std::isfinite(pose_stamp_sec) || last_fused_pose_stamp_sec_ <= 0.0) {
-            return;
-        }
-        const double dt = pose_stamp_sec - last_fused_pose_stamp_sec_;
-        // Client stamps a drained UDP batch a millisecond apart. Coupling on
-        // that dt makes K_v huge and yanks v from noise. Leftover v was built
-        // on the preceding 30–200 ms gap.
-        if (!std::isfinite(dt) || dt < 0.02) {
-            return;
-        }
-        const Eigen::Vector3d coast_error = predicted_marker.position - measured_marker.position;
-        const Eigen::Vector3d velocity = state_.velocity;
-        const double coast_norm = coast_error.norm();
-        const double velocity_norm = velocity.norm();
-        const double sigma = pose3_inertial_eskf_detail::positiveOr(config_.pose_position_noise_std, 0.01);
-        // Only the leftover-v sawtooth: prediction ran past the marker along
-        // current v. Process-model lag (wrong accel axis) is not ν≈v·dt and
-        // must not be turned into Δv=ν/dt.
-        if (!(coast_norm > 3.0 * sigma) || velocity_norm < 0.05) {
-            return;
-        }
-        if (coast_error.dot(velocity) < 0.3 * coast_norm * velocity_norm) {
-            return;
-        }
-        if (coast_norm > 2.0 * velocity_norm * dt + 5.0 * sigma) {
-            return;
-        }
-        const double r_pos = sigma * sigma;
-        const double vv_cap = std::max(config_.initial_velocity_variance, 0.1);
-        for (int i = 0; i < 3; ++i) {
-            const double pp = std::max(covariance_(i, i), 0.0);
-            const double innovation_variance = pp + r_pos;
-            if (!(innovation_variance > 0.0) || !(pp > 0.0)) {
-                continue;
-            }
-            const double pv_for_gain = innovation_variance / dt;
-            const double vv_needed = (pv_for_gain / 0.99) * (pv_for_gain / 0.99) / pp;
-            scaleDiagonalToMinimum(3 + i, std::min(vv_needed, vv_cap));
-            const double vv = std::max(covariance_(3 + i, 3 + i), 0.0);
-            const double pv_psd = 0.99 * std::sqrt(pp * vv);
-            const double target = std::min(pv_for_gain, pv_psd);
-            if (covariance_(i, 3 + i) < target) {
-                covariance_(i, 3 + i) = target;
-                covariance_(3 + i, i) = target;
-            }
-        }
-        covariance_ = 0.5 * (covariance_ + covariance_.transpose());
     }
 
     bool measurementStampWithinImuWindow(double stamp_sec) const {
@@ -987,8 +930,10 @@ class Pose3InertialEskf {
         // Discrete IESKF process (FAST-LIO2 use-ikfom df_dx / df_dw, 15-state
         // subset: no gravity manifold, no lidar extrinsics).
         // F = I + F_c dt with F_θθ = Exp(-[ω]× dt), F_θ,bg = -Jr(ω dt) dt.
-        // Q = G Qc G^T so accel noise enters v (and p through G_p) together;
-        // independent diagonal Q_pp/Q_vv does not build P_pv.
+        // G = G_c dt as in IKFoM predict: P += (dt f_w) Q (dt f_w)^T.
+        // Config stds are continuous-time densities, so Q here is Qc/dt and
+        // Q_d = G_c Qc G_c^T dt. Using Qc=std² with G∝dt underweights velocity
+        // and bias process noise by 1/dt; flooring P_pp cannot create K_v.
         const Eigen::Vector3d phi = omega_body * dt;
         const Eigen::Matrix3d jr = pose3_inertial_eskf_detail::so3RightJacobian(phi);
         const Eigen::Matrix3d accel_skew = pose3_inertial_eskf_detail::skewMatrix(accel_body);
@@ -1009,13 +954,14 @@ class Pose3InertialEskf {
         G.block<3, 3>(9, 6) = Eigen::Matrix3d::Identity() * dt;
         G.block<3, 3>(12, 9) = Eigen::Matrix3d::Identity() * dt;
 
+        const double inv_dt = 1.0 / dt;
         Eigen::Matrix<double, 12, 12> process_noise = Eigen::Matrix<double, 12, 12>::Zero();
-        process_noise.diagonal().segment<3>(0).setConstant(config_.gyro_noise_std * config_.gyro_noise_std);
-        process_noise.diagonal().segment<3>(3).setConstant(config_.accel_noise_std * config_.accel_noise_std);
+        process_noise.diagonal().segment<3>(0).setConstant(config_.gyro_noise_std * config_.gyro_noise_std * inv_dt);
+        process_noise.diagonal().segment<3>(3).setConstant(config_.accel_noise_std * config_.accel_noise_std * inv_dt);
         process_noise.diagonal().segment<3>(6).setConstant(config_.gyro_bias_random_walk_std *
-                                                          config_.gyro_bias_random_walk_std);
+                                                          config_.gyro_bias_random_walk_std * inv_dt);
         process_noise.diagonal().segment<3>(9).setConstant(config_.accel_bias_random_walk_std *
-                                                          config_.accel_bias_random_walk_std);
+                                                          config_.accel_bias_random_walk_std * inv_dt);
 
         covariance_ = F * covariance_ * F.transpose() + G * process_noise * G.transpose();
         covariance_ = 0.5 * (covariance_ + covariance_.transpose());
