@@ -53,11 +53,14 @@ struct Pose3InertialEskfTestAccess {
 
 namespace {
 
-void expect(bool condition) {
+void expect_at(bool condition, int line) {
     if (!condition) {
+        std::fprintf(stderr, "expect failed at math_header_test.cpp:%d\n", line);
         std::abort();
     }
 }
+
+#define expect(condition) expect_at(static_cast<bool>(condition), __LINE__)
 
 void testButterworth() {
     xgc2_math::SecondOrderButterworthLowPass filter(5.0, 0.0);
@@ -1043,6 +1046,72 @@ void testPose3InertialEskfFasterPoseDoesNotMoveImuClock() {
     expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.02) < 1.0e-12);
 }
 
+void testPose3InertialEskfLatePoseReplaysImu() {
+    xgc2_math::Pose3InertialEskfConfig config;
+    config.pose_nis_gate = 1.0e6;
+    config.innovation_position_gate_m = 10.0;
+    config.innovation_orientation_gate_rad = 1.0;
+    config.pose_position_noise_std = 0.003;
+    config.pose_orientation_noise_std = 0.005;
+
+    xgc2_math::Pose3InertialEskf eskf;
+    eskf.setConfig(config);
+    const Eigen::Vector3d gyro(0.0, 0.0, 1.0);
+    const auto imu0 = InertialPoseTestSamples::inertial(1.0, gyro);
+    eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+    for (int i = 1; i <= 5; ++i) {
+        eskf.propagateInertial(InertialPoseTestSamples::inertial(1.0 + 0.01 * i, gyro));
+    }
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.05) < 1.0e-12);
+    const auto yawOf = [](const Eigen::Quaterniond& q) {
+        return std::atan2(2.0 * (q.w() * q.z() + q.x() * q.y()), 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z()));
+    };
+    const double yaw_before = yawOf(eskf.state().orientation);
+    expect(yaw_before > 0.045);
+
+    const auto late = InertialPoseTestSamples::pose(1.03, Eigen::Vector3d::Zero(),
+                                                    xgc2_math::rpyToQuaternion(Eigen::Vector3d(0.0, 0.0, 0.03)));
+    const auto result = eskf.updatePose(late);
+    expect(result.accepted);
+    expect(!result.time_alignment_rejected);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.05) < 1.0e-9);
+    const double yaw_after = yawOf(eskf.state().orientation);
+    expect(std::fabs(yaw_after - yaw_before) < 0.012);
+    expect(yaw_after > 0.04);
+}
+
+void testPose3InertialEskfObservationDelayRewindsEarlier() {
+    xgc2_math::Pose3InertialEskfConfig config;
+    config.pose_nis_gate = 1.0e6;
+    config.innovation_position_gate_m = 10.0;
+    config.innovation_orientation_gate_rad = 1.0;
+    config.pose_observation_delay_s = 0.02;
+
+    xgc2_math::Pose3InertialEskf eskf;
+    eskf.setConfig(config);
+    const Eigen::Vector3d gyro(0.0, 0.0, 1.0);
+    const auto imu0 = InertialPoseTestSamples::inertial(1.0, gyro);
+    eskf.initializeFromPose(InertialPoseTestSamples::pose(1.0, Eigen::Vector3d::Zero()), &imu0);
+    for (int i = 1; i <= 5; ++i) {
+        eskf.propagateInertial(InertialPoseTestSamples::inertial(1.0 + 0.01 * i, gyro));
+    }
+    const auto yawOf = [](const Eigen::Quaterniond& q) {
+        return std::atan2(2.0 * (q.w() * q.z() + q.x() * q.y()), 1.0 - 2.0 * (q.y() * q.y() + q.z() * q.z()));
+    };
+    const double yaw_before = yawOf(eskf.state().orientation);
+    // Stamp is "now" (1.05); content is yaw at 1.03. Delay 20 ms fuses at 1.03 then
+    // replays IMU so current yaw is not yanked back to 0.03.
+    const auto delayed = InertialPoseTestSamples::pose(1.05, Eigen::Vector3d::Zero(),
+                                                       xgc2_math::rpyToQuaternion(Eigen::Vector3d(0.0, 0.0, 0.03)));
+    const auto result = eskf.updatePose(delayed);
+    expect(result.accepted);
+    expect(std::fabs(eskf.state().last_inertial_stamp_sec - 1.05) < 1.0e-9);
+    expect(std::fabs(eskf.lastFusedPoseStampS() - 1.03) < 1.0e-9);
+    const double yaw_after = yawOf(eskf.state().orientation);
+    expect(std::fabs(yaw_after - yaw_before) < 0.012);
+    expect(yaw_after > 0.04);
+}
+
 void testPose3InertialEskfMeasurementJacobianMatchesFiniteDifference() {
     xgc2_math::Pose3InertialEskfConfig config;
     config.estimate_extrinsic = true;
@@ -1538,6 +1607,8 @@ int main() {
     testPose3InertialEskfFixedOfflineExtrinsic();
     testPose3InertialEskfMultiRateSequentialPoseFusion();
     testPose3InertialEskfFasterPoseDoesNotMoveImuClock();
+    testPose3InertialEskfLatePoseReplaysImu();
+    testPose3InertialEskfObservationDelayRewindsEarlier();
     testPose3InertialEskfMeasurementJacobianMatchesFiniteDifference();
     testPose3InertialEskfVrpnHealthTransitions();
     testTrajectoryAndNmpcProblemContracts();

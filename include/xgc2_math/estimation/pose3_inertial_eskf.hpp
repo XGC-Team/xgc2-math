@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <deque>
+#include <vector>
 
 #include <Eigen/Cholesky>
 #include <Eigen/Core>
@@ -36,11 +38,13 @@ struct Pose3InertialEskfConfig {
     double pose_nis_gate{22.5};
     double covariance_high_threshold{100.0};
     double max_propagation_dt_s{0.01};
-    // Observation time window versus the IMU clock. Pose updates never move
-    // last_inertial_stamp_sec. VRPN at 30 Hz or 120 Hz uses the same rule:
-    // apply at the current IMU state, or reject if the stamp is far stale/future.
+    // Observation time window versus the IMU clock. A pose is fused at
+    // stamp - pose_observation_delay_s, then later IMU samples are replayed so
+    // last_inertial_stamp_sec stays on the IMU clock. Delay default 0: do not
+    // invent a wireless latency. Reject if the observation time is outside the window.
     double pose_max_late_s{0.12};
     double pose_max_early_s{0.12};
+    double pose_observation_delay_s{0.0};
     double initial_position_variance{0.01};
     double initial_velocity_variance{0.1};
     double initial_orientation_variance{0.01};
@@ -169,6 +173,7 @@ inline void normalize(Pose3InertialEskfConfig& config) {
     config.max_propagation_dt_s = pose3_inertial_eskf_detail::positiveOr(config.max_propagation_dt_s, 0.01);
     config.pose_max_late_s = pose3_inertial_eskf_detail::positiveOr(config.pose_max_late_s, 0.12);
     config.pose_max_early_s = pose3_inertial_eskf_detail::positiveOr(config.pose_max_early_s, 0.12);
+    config.pose_observation_delay_s = pose3_inertial_eskf_detail::nonNegativeOr(config.pose_observation_delay_s, 0.0);
     config.initial_position_variance = pose3_inertial_eskf_detail::positiveOr(config.initial_position_variance, 0.01);
     config.initial_velocity_variance = pose3_inertial_eskf_detail::positiveOr(config.initial_velocity_variance, 0.1);
     config.initial_orientation_variance =
@@ -178,9 +183,12 @@ inline void normalize(Pose3InertialEskfConfig& config) {
         pose3_inertial_eskf_detail::positiveOr(config.initial_accel_bias_variance, 0.1);
     config.initial_extrinsic_position_variance = 0.0;
     config.initial_extrinsic_orientation_variance = 0.0;
-    // Compatibility-only field. Pose3InertialEskf is a sequential multi-rate estimator
-    // and does not keep an internal history buffer.
-    config.inertial_buffer_capacity = config.inertial_buffer_capacity == 0u ? 1u : config.inertial_buffer_capacity;
+    if (config.inertial_buffer_capacity < 2u) {
+        config.inertial_buffer_capacity = 128u;
+    }
+    if (config.inertial_buffer_capacity > 512u) {
+        config.inertial_buffer_capacity = 512u;
+    }
 }
 
 inline Pose3InertialEskfConfig normalized(Pose3InertialEskfConfig config) {
@@ -241,6 +249,7 @@ class Pose3InertialEskf {
         has_last_raw_body_measurement_pose_ = false;
         last_inertial_ = InertialSample{};
         has_last_inertial_ = false;
+        history_.clear();
         vrpn_health_.reset();
         last_fused_pose_stamp_sec_ = 0.0;
         last_raw_pose_measurement_stamp_sec_ = 0.0;
@@ -281,6 +290,15 @@ class Pose3InertialEskf {
         has_raw_projected_body_pose_ = true;
         vrpn_health_.reset();
         last_fused_pose_stamp_sec_ = pose.stamp_sec;
+        if (has_last_inertial_) {
+            captureHistoryFrame(last_inertial_);
+        } else {
+            InertialSample seed;
+            seed.received = true;
+            seed.valid = true;
+            seed.stamp_sec = pose.stamp_sec;
+            captureHistoryFrame(seed);
+        }
     }
 
     void propagateInertial(const InertialSample& inertial) {
@@ -304,12 +322,18 @@ class Pose3InertialEskf {
             return;
         }
 
+        bool moved = false;
         if (has_last_inertial_) {
-            propagateToStampUsingInertialPair(inertial, inertial.stamp_sec);
+            moved = propagateToStampUsingInertialPair(inertial, inertial.stamp_sec);
         } else {
-            propagateToStamp(inertial, inertial.stamp_sec);
-            last_inertial_ = inertial;
-            has_last_inertial_ = true;
+            moved = propagateToStamp(inertial, inertial.stamp_sec);
+            if (moved) {
+                last_inertial_ = inertial;
+                has_last_inertial_ = true;
+            }
+        }
+        if (moved) {
+            captureHistoryFrame(inertial);
         }
     }
 
@@ -328,24 +352,36 @@ class Pose3InertialEskf {
             stampResultHealth(result);
             return result;
         }
-        // IMU is the only process clock. A pose is an observation of the current
-        // IMU-time state, whether VRPN is slower or faster than the IMU. Do not
-        // hold-propagate IMU to the pose stamp (that would drop later IMU samples
-        // when VRPN is 120 Hz). Do not estimate link delay or rewrite stamps.
+        // IMU stays the process clock. Fuse the pose at its observation time
+        // (header stamp minus optional delay, default 0), then replay IMU samples
+        // so later inertial data is not dropped. Do not rewrite the incoming stamp
+        // and do not treat a late pose as a measurement of the current IMU state.
         if (!state_.initialized) {
             initializeFromPose(pose, has_last_inertial_ ? &last_inertial_ : nullptr);
             result.accepted = state_.initialized;
             stampResultHealth(result);
             return result;
         }
-        if (!measurementStampWithinImuWindow(pose.stamp_sec)) {
+        PoseMeasurement observation = pose;
+        observation.stamp_sec = pose.stamp_sec - config_.pose_observation_delay_s;
+        if (!measurementStampWithinImuWindow(observation.stamp_sec)) {
             result.time_alignment_rejected = true;
             result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
             vrpn_health_.recordRejected();
             stampResultHealth(result);
             return result;
         }
-        return updatePoseAtCurrentState(pose);
+        std::vector<InertialSample> replay;
+        if (!rewindToObservationStamp(observation.stamp_sec, replay)) {
+            result.time_alignment_rejected = true;
+            result.reject_reason = PoseFusionRejectReason::kTimeAlignment;
+            vrpn_health_.recordRejected();
+            stampResultHealth(result);
+            return result;
+        }
+        result = updatePoseAtCurrentState(observation);
+        replayInertialSamples(replay);
+        return result;
     }
 
     VelocityUpdateResult updateVelocity(const VelocityMeasurement& velocity) {
@@ -412,6 +448,102 @@ class Pose3InertialEskf {
     std::size_t vrpnConsecutiveAccepts() const { return vrpn_health_.consecutiveAccepts(); }
 
   private:
+    struct HistoryFrame {
+        InertialSample applied_inertial{};
+        InertialSample last_inertial{};
+        bool has_last_inertial{false};
+        RigidBodyState state{};
+        ErrorCovariance covariance{ErrorCovariance::Identity()};
+    };
+
+    void captureHistoryFrame(const InertialSample& applied) {
+        if (!state_.initialized) {
+            return;
+        }
+        HistoryFrame frame;
+        frame.applied_inertial = applied;
+        frame.last_inertial = last_inertial_;
+        frame.has_last_inertial = has_last_inertial_;
+        frame.state = state_;
+        frame.covariance = covariance_;
+        if (!history_.empty() &&
+            std::fabs(history_.back().state.last_inertial_stamp_sec - state_.last_inertial_stamp_sec) <= kMinDt) {
+            history_.back() = frame;
+            return;
+        }
+        history_.push_back(frame);
+        while (history_.size() > config_.inertial_buffer_capacity) {
+            history_.pop_front();
+        }
+    }
+
+    void applyHistoryFrame(const HistoryFrame& frame) {
+        state_ = frame.state;
+        covariance_ = frame.covariance;
+        last_inertial_ = frame.last_inertial;
+        has_last_inertial_ = frame.has_last_inertial;
+        corrected_body_pose_ = bodyPoseFromState(state_);
+        has_corrected_body_pose_ = true;
+        state_.covariance_trace = covariance_.trace();
+    }
+
+    bool rewindToObservationStamp(double observation_stamp_sec, std::vector<InertialSample>& replay) {
+        replay.clear();
+        if (!std::isfinite(observation_stamp_sec) || !state_.initialized) {
+            return false;
+        }
+        const double now_stamp = state_.last_inertial_stamp_sec;
+        if (observation_stamp_sec >= now_stamp - kMinDt) {
+            return true;
+        }
+        if (history_.empty()) {
+            return false;
+        }
+
+        std::size_t restore_index = history_.size();
+        for (std::size_t i = 0; i < history_.size(); ++i) {
+            if (history_[i].state.last_inertial_stamp_sec <= observation_stamp_sec + kMinDt) {
+                restore_index = i;
+            }
+        }
+        if (restore_index >= history_.size()) {
+            return false;
+        }
+
+        replay.reserve(history_.size() - restore_index);
+        for (std::size_t i = restore_index + 1; i < history_.size(); ++i) {
+            if (pose3_inertial_eskf_detail::validInertialSample(history_[i].applied_inertial)) {
+                replay.push_back(history_[i].applied_inertial);
+            }
+        }
+
+        applyHistoryFrame(history_[restore_index]);
+        history_.erase(history_.begin() + static_cast<std::ptrdiff_t>(restore_index) + 1, history_.end());
+
+        if (observation_stamp_sec > state_.last_inertial_stamp_sec + kMinDt) {
+            if (replay.empty()) {
+                return false;
+            }
+            if (!propagateToStampUsingInertialPair(replay.front(), observation_stamp_sec)) {
+                return false;
+            }
+            captureHistoryFrame(replay.front());
+        }
+        return true;
+    }
+
+    void replayInertialSamples(const std::vector<InertialSample>& replay) {
+        for (const InertialSample& inertial : replay) {
+            if (!pose3_inertial_eskf_detail::validInertialSample(inertial)) {
+                continue;
+            }
+            if (inertial.stamp_sec <= state_.last_inertial_stamp_sec + kMinDt) {
+                continue;
+            }
+            propagateInertial(inertial);
+        }
+    }
+
     PoseUpdateResult updatePoseAtCurrentState(const PoseMeasurement& pose) {
         PoseUpdateResult result;
         if (!pose3_inertial_eskf_detail::validPoseMeasurement(pose)) {
@@ -499,6 +631,9 @@ class Pose3InertialEskf {
         last_fused_pose_stamp_sec_ = pose.stamp_sec;
         result.accepted = true;
         stampResultHealth(result);
+        if (has_last_inertial_) {
+            captureHistoryFrame(last_inertial_);
+        }
         return result;
     }
 
@@ -838,6 +973,7 @@ class Pose3InertialEskf {
     bool has_last_raw_body_measurement_pose_{false};
     InertialSample last_inertial_{};
     bool has_last_inertial_{false};
+    std::deque<HistoryFrame> history_{};
     ObservationHealthTracker vrpn_health_{};
     double last_fused_pose_stamp_sec_{0.0};
     double last_raw_pose_measurement_stamp_sec_{0.0};
