@@ -51,6 +51,9 @@ struct Se2TargetTrajectoryResult2 {
 
 class Se2MincoTargetPlanner2 final {
   public:
+    // Pose-to-pose sampled reference. Long, well-aligned hops may use MINCO; otherwise
+    // a complete differential-drive TST (turn in place, straight or reverse, turn)
+    // so any relative SE2 pose in the workspace stays kinematically feasible.
     bool plan(const Se2TargetState2& start, const Se2TargetState2& target, const Se2TargetTrajectoryOptions2& options,
               Se2TargetTrajectoryResult2& result) const;
 };
@@ -140,7 +143,14 @@ inline bool appendSample(std::vector<SampledPoint2>& samples, SampledPoint2 samp
 
 inline uint32_t validateSamples(const std::vector<SampledPoint2>& samples, const Se2TargetTrajectoryOptions2& options) {
     SampledEvaluator2 evaluator;
-    if (!evaluator.setSamples(samples)) {
+    bool preserve = false;
+    for (const auto& sample : samples) {
+        if ((sample.reference.flags & kFlagExplicitPlanarKinematics) != 0U || sample.reference.speed < 0.0) {
+            preserve = true;
+            break;
+        }
+    }
+    if (!evaluator.setSamples(samples, preserve)) {
         return kFlagInvalidInput;
     }
     TrajectoryLimits2 limits;
@@ -179,14 +189,25 @@ inline void appendHold(const Se2TargetState2& state, double start_t, double dura
     }
 }
 
-inline void appendYawHold(const Se2TargetState2& start, const Se2TargetState2& target,
-                          const Se2TargetTrajectoryOptions2& options, std::vector<SampledPoint2>& samples) {
+inline double sampleStartT(const std::vector<SampledPoint2>& samples) {
+    return samples.empty() ? 0.0 : samples.back().t;
+}
+
+inline bool appendYawSegment(const Eigen::Vector2d& position, double start_yaw, double target_yaw,
+                             const Se2TargetTrajectoryOptions2& options, std::vector<SampledPoint2>& samples) {
     const double max_yaw_rate = positiveLimit(options.max_yaw_rate, 1.0);
     const double dt = positiveLimit(options.sample_dt, 0.01);
-    const double yaw_delta = wrapAngle(target.yaw - start.yaw);
-    const double duration = std::max(0.5, 1.875 * std::abs(yaw_delta) / max_yaw_rate);
+    const double yaw_delta = wrapAngle(target_yaw - start_yaw);
+    if (std::abs(yaw_delta) <= 0.02) {
+        return true;
+    }
+    const double duration = std::max(0.5, 2.0 * std::abs(yaw_delta) / max_yaw_rate);
     const int count = std::max(1, static_cast<int>(std::ceil(duration / dt)));
+    const double t_offset = sampleStartT(samples);
     for (int i = 0; i <= count; ++i) {
+        if (!samples.empty() && i == 0) {
+            continue;
+        }
         const double t = duration * static_cast<double>(i) / static_cast<double>(count);
         const double s = t / duration;
         const double s2 = s * s;
@@ -197,18 +218,188 @@ inline void appendYawHold(const Se2TargetState2& start, const Se2TargetState2& t
         const double blend_dot = (30.0 * s2 - 60.0 * s3 + 30.0 * s4) / duration;
         const double blend_ddot = (60.0 * s - 180.0 * s2 + 120.0 * s3) / (duration * duration);
         SampledPoint2 sample;
-        sample.t = t;
-        sample.reference.position = start.position;
-        sample.reference.yaw = wrapAngle(start.yaw + yaw_delta * blend);
+        sample.t = t_offset + t;
+        sample.reference.position = position;
+        sample.reference.yaw = wrapAngle(start_yaw + yaw_delta * blend);
         sample.reference.yaw_rate = yaw_delta * blend_dot;
         sample.reference.yaw_acceleration = yaw_delta * blend_ddot;
         sample.reference.speed = 0.0;
-        sample.reference.flags |= kFlagLowSpeedSingularity;
-        appendSample(samples, std::move(sample));
+        sample.reference.flags |= kFlagLowSpeedSingularity | kFlagExplicitPlanarKinematics;
+        if (!appendSample(samples, std::move(sample))) {
+            return false;
+        }
     }
+    return true;
+}
+
+inline void appendYawHold(const Se2TargetState2& start, const Se2TargetState2& target,
+                          const Se2TargetTrajectoryOptions2& options, std::vector<SampledPoint2>& samples) {
+    const double dt = positiveLimit(options.sample_dt, 0.01);
+    (void)appendYawSegment(start.position, start.yaw, target.yaw, options, samples);
     Se2TargetState2 hold = target;
     hold.position = start.position;
-    appendHold(hold, samples.empty() ? duration : samples.back().t, options.hold_duration, dt, samples);
+    appendHold(hold, samples.empty() ? 0.0 : samples.back().t, options.hold_duration, dt, samples);
+}
+
+inline bool appendTrapezoidChord(const Eigen::Vector2d& from, const Eigen::Vector2d& to, double body_yaw,
+                                 const Se2TargetTrajectoryOptions2& options, bool reverse,
+                                 std::vector<SampledPoint2>& samples) {
+    const Eigen::Vector2d delta = to - from;
+    const double dist = delta.norm();
+    if (dist <= std::max(1.0e-4, options.position_tolerance)) {
+        return true;
+    }
+    const Eigen::Vector2d dir = delta / dist;
+    const double dt = positiveLimit(options.sample_dt, 0.01);
+    const double max_velocity = positiveLimit(options.max_velocity, 3.0);
+    const double a_max = 0.95 * positiveLimit(options.max_acceleration, 2.0);
+    const double v_des = clamp(positiveLimit(options.desired_speed, 1.0), 0.05, max_velocity);
+    double t_acc = v_des / a_max;
+    double v_peak = v_des;
+    double t_cruise = 0.0;
+    const double d_acc = 0.5 * a_max * t_acc * t_acc;
+    if (2.0 * d_acc >= dist) {
+        t_acc = std::sqrt(std::max(dist / a_max, 0.0));
+        v_peak = a_max * t_acc;
+        t_cruise = 0.0;
+    } else {
+        t_cruise = (dist - 2.0 * d_acc) / v_des;
+    }
+    const double t_move = 2.0 * t_acc + t_cruise;
+    const int count = std::max(1, static_cast<int>(std::ceil(t_move / dt)));
+    const double t_offset = sampleStartT(samples);
+    const double speed_sign = reverse ? -1.0 : 1.0;
+    for (int i = 0; i <= count; ++i) {
+        if (!samples.empty() && i == 0) {
+            continue;
+        }
+        const double t = t_move * static_cast<double>(i) / static_cast<double>(count);
+        double s = dist;
+        double v = 0.0;
+        double a = 0.0;
+        if (t < t_acc) {
+            v = a_max * t;
+            s = 0.5 * a_max * t * t;
+            a = a_max;
+        } else if (t < t_acc + t_cruise) {
+            v = v_peak;
+            s = d_acc + v_peak * (t - t_acc);
+            a = 0.0;
+        } else {
+            const double tau = t - t_acc - t_cruise;
+            v = std::max(0.0, v_peak - a_max * tau);
+            const double remaining = std::max(0.0, t_acc - tau);
+            s = dist - 0.5 * a_max * remaining * remaining;
+            a = -a_max;
+        }
+        SampledPoint2 sample;
+        sample.t = t_offset + t;
+        sample.reference.position = from + dir * s;
+        sample.reference.velocity = dir * v;
+        sample.reference.acceleration = dir * a;
+        sample.reference.yaw = wrapAngle(body_yaw);
+        sample.reference.speed = speed_sign * v;
+        sample.reference.linear_acceleration = speed_sign * a;
+        sample.reference.flags |= kFlagExplicitPlanarKinematics;
+        if (v < 1.0e-6) {
+            sample.reference.flags |= kFlagLowSpeedSingularity;
+        }
+        if (!appendSample(samples, std::move(sample))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline bool appendDecelToStop(const Se2TargetState2& start, const Se2TargetTrajectoryOptions2& options,
+                              Se2TargetState2& stopped, std::vector<SampledPoint2>& samples) {
+    stopped = start;
+    if (!finiteScalar(start.speed) || std::abs(start.speed) <= 0.05) {
+        stopped.speed = 0.0;
+        return true;
+    }
+    const double a_max = 0.95 * positiveLimit(options.max_acceleration, 2.0);
+    const double dt = positiveLimit(options.sample_dt, 0.01);
+    const double v0 = start.speed;
+    const double duration = std::abs(v0) / a_max;
+    const int count = std::max(1, static_cast<int>(std::ceil(duration / dt)));
+    const Eigen::Vector2d heading = unitFromYaw(start.yaw);
+    const double t_offset = sampleStartT(samples);
+    for (int i = 0; i <= count; ++i) {
+        if (!samples.empty() && i == 0) {
+            continue;
+        }
+        const double t = duration * static_cast<double>(i) / static_cast<double>(count);
+        const double accel = (v0 >= 0.0 ? -a_max : a_max);
+        const double v = v0 + accel * t;
+        const double s = v0 * t + 0.5 * accel * t * t;
+        SampledPoint2 sample;
+        sample.t = t_offset + t;
+        sample.reference.position = start.position + heading * s;
+        sample.reference.velocity = heading * v;
+        sample.reference.acceleration = heading * accel;
+        sample.reference.yaw = wrapAngle(start.yaw);
+        sample.reference.speed = v;
+        sample.reference.linear_acceleration = accel;
+        sample.reference.flags |= kFlagExplicitPlanarKinematics;
+        if (std::abs(v) < 1.0e-6) {
+            sample.reference.flags |= kFlagLowSpeedSingularity;
+        }
+        if (!appendSample(samples, std::move(sample))) {
+            return false;
+        }
+    }
+    const double s_end = v0 * duration + 0.5 * (v0 >= 0.0 ? -a_max : a_max) * duration * duration;
+    stopped.position = start.position + heading * s_end;
+    stopped.speed = 0.0;
+    return true;
+}
+
+inline bool mincoWellPosedForUnicycle(const Se2TargetState2& start, double travel_yaw, double distance,
+                                      const Se2TargetTrajectoryOptions2& options) {
+    const double max_velocity = positiveLimit(options.max_velocity, 3.0);
+    const double desired = clamp(positiveLimit(options.desired_speed, 1.0), 0.05, max_velocity);
+    const double max_yaw_rate = positiveLimit(options.max_yaw_rate, 2.5);
+    const double r_min = desired / std::max(max_yaw_rate, 1.0e-3);
+    const double yaw_to_travel = std::abs(wrapAngle(start.yaw - travel_yaw));
+    if (yaw_to_travel > 0.6) {
+        return false;
+    }
+    if (distance < std::max(1.0, 2.5 * r_min)) {
+        return false;
+    }
+    return true;
+}
+
+inline bool composeFeasibleUnicycle(const Se2TargetState2& start, const Se2TargetState2& target,
+                                    const Se2TargetTrajectoryOptions2& options, std::vector<SampledPoint2>& samples) {
+    samples.clear();
+    Se2TargetState2 cursor;
+    if (!appendDecelToStop(start, options, cursor, samples)) {
+        return false;
+    }
+    cursor.speed = 0.0;
+    const Eigen::Vector2d delta = target.position - cursor.position;
+    const double dist = delta.norm();
+    const double travel_yaw = dist > 1.0e-4 ? std::atan2(delta.y(), delta.x()) : cursor.yaw;
+    const double reverse_yaw = wrapAngle(travel_yaw + 3.141592653589793);
+    const double d_fwd = std::abs(wrapAngle(cursor.yaw - travel_yaw));
+    const double d_rev = std::abs(wrapAngle(cursor.yaw - reverse_yaw));
+    const bool reverse = d_rev + 0.15 < d_fwd;
+    const double move_yaw = reverse ? reverse_yaw : travel_yaw;
+    if (!appendYawSegment(cursor.position, cursor.yaw, move_yaw, options, samples)) {
+        return false;
+    }
+    cursor.yaw = move_yaw;
+    if (!appendTrapezoidChord(cursor.position, target.position, cursor.yaw, options, reverse, samples)) {
+        return false;
+    }
+    cursor.position = target.position;
+    if (!appendYawSegment(cursor.position, cursor.yaw, target.yaw, options, samples)) {
+        return false;
+    }
+    appendHold(target, sampleStartT(samples), options.hold_duration, positiveLimit(options.sample_dt, 0.01), samples);
+    return !samples.empty();
 }
 
 class MincoSe2TargetOptimizer {
@@ -489,6 +680,41 @@ inline bool Se2MincoTargetPlanner2::plan(const Se2TargetState2& start, const Se2
         return !result.samples.empty();
     }
 
+    const Eigen::Vector2d travel = target.position - start.position;
+    const double travel_yaw = std::atan2(travel.y(), travel.x());
+
+    auto fill_feasible = [&]() -> bool {
+        std::vector<SampledPoint2> samples;
+        if (!composeFeasibleUnicycle(start, target, options, samples)) {
+            result.fallback_hold = true;
+            result.samples.clear();
+            result.duration = 0.0;
+            result.flags |= kFlagOptimizationFailure;
+            return false;
+        }
+        const uint32_t validation_flags = validateSamples(samples, options);
+        constexpr uint32_t kHardLimitFlags =
+            kFlagInvalidInput | kFlagNonFinite | kFlagVelocityLimit | kFlagAccelerationLimit | kFlagYawRateLimit;
+        if ((validation_flags & kHardLimitFlags) != 0U) {
+            result.flags |= validation_flags | kFlagOptimizationFailure;
+            result.fallback_hold = true;
+            result.samples.clear();
+            result.duration = 0.0;
+            return false;
+        }
+        result.samples = std::move(samples);
+        result.flags |= validation_flags | kFlagExplicitPlanarKinematics;
+        result.duration = result.samples.empty() ? 0.0 : result.samples.back().t;
+        result.optimized = false;
+        result.fallback_hold = false;
+        return !result.samples.empty();
+    };
+
+    const bool try_minco = mincoWellPosedForUnicycle(start, travel_yaw, distance, options);
+    if (!try_minco) {
+        return fill_feasible();
+    }
+
     const double max_velocity = positiveLimit(options.max_velocity, 3.0);
     const double max_acceleration = positiveLimit(options.max_acceleration, 2.0);
     const double desired_speed = clamp(positiveLimit(options.desired_speed, 1.0), 0.05, max_velocity);
@@ -514,17 +740,13 @@ inline bool Se2MincoTargetPlanner2::plan(const Se2TargetState2& start, const Se2
     uint32_t flags = kFlagNone;
     const bool optimized = optimizer.optimize(x, flags);
     if (!optimized) {
-        result.flags |= flags;
-        result.fallback_hold = true;
-        result.duration = 0.0;
-        return false;
+        return fill_feasible();
     }
 
     Eigen::VectorXd times;
     Eigen::Matrix3Xd points;
     if (!optimizer.decode(x, times, points)) {
-        result.flags |= kFlagInvalidInput;
-        return false;
+        return fill_feasible();
     }
 
     double stop_duration = std::max(local_options.min_segment_time, 2.0 * stop_distance / approach_speed);
@@ -533,14 +755,12 @@ inline bool Se2MincoTargetPlanner2::plan(const Se2TargetState2& start, const Se2
     for (int attempt = 0; attempt < 8; ++attempt) {
         Eigen::MatrixX3d coeffs;
         if (!optimizer.buildCoefficients(times, points, coeffs)) {
-            result.flags |= kFlagInvalidInput;
-            return false;
+            return fill_feasible();
         }
         std::vector<SampledPoint2> samples;
         if (!appendMincoSamples(times, coeffs, local_options, samples) ||
             !appendStopSamples(motion_target, tail_velocity, target, stop_duration, local_options, samples)) {
-            result.flags |= kFlagInvalidInput;
-            return false;
+            return fill_feasible();
         }
         Se2TargetState2 hold = target;
         appendHold(hold, samples.back().t, options.hold_duration, dt, samples);
@@ -563,11 +783,7 @@ inline bool Se2MincoTargetPlanner2::plan(const Se2TargetState2& start, const Se2
     }
 
     if (!valid) {
-        result.fallback_hold = true;
-        result.samples.clear();
-        result.duration = 0.0;
-        result.flags |= kFlagOptimizationFailure;
-        return false;
+        return fill_feasible();
     }
 
     result.duration = result.samples.empty() ? 0.0 : result.samples.back().t;
