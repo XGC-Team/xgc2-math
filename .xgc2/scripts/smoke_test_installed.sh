@@ -24,7 +24,7 @@ test -f /usr/include/xgc2_math/geometry/occupied_sets/sphere_set.h
 test -f /usr/include/xgc2_math/filter/exponential_filter.hpp
 test -f /usr/include/xgc2_math/observer/differentiator.hpp
 test -f /usr/include/xgc2_math/estimation/pose3_inertial_eskf.hpp
-test -f /usr/include/xgc2_math/estimation/pose2_inertial_eskf.hpp
+test ! -f /usr/include/xgc2_math/estimation/pose2_inertial_eskf.hpp
 test -f /usr/include/xgc2_math/optimization/minco.hpp
 test -f /usr/include/xgc2_math/trajectory/trajectory3.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/2d/circle_entry_2d.hpp
@@ -66,7 +66,6 @@ int main()
   xgc2_math::ArrayDifferentiator<3> array_diff;
   xgc2_math::ScalarRecursiveLeastSquares rls;
   xgc2_math::Pose3InertialEskf pose3_inertial_eskf;
-  xgc2_math::Pose2InertialEskf planar_eskf;
   xgc2_math::SphereSet sphere(Eigen::Vector3d::Zero(), 1.0);
   xgc2_math::Pose2 planar_pose;
   xgc2_math::trajectory::CircleEntryCurveEvaluator3 entry_curve;
@@ -93,11 +92,6 @@ int main()
   pose_sample.valid = true;
   pose_sample.stamp_sec = 1.0;
   pose3_inertial_eskf.initializeFromPose(pose_sample, nullptr);
-  xgc2_math::PlanarPoseMeasurement planar_sample;
-  planar_sample.received = true;
-  planar_sample.valid = true;
-  planar_sample.stamp_sec = 1.0;
-  planar_eskf.initializeFromPose(planar_sample, nullptr);
   planar_pose = xgc2_math::compose(planar_pose, xgc2_math::Pose2{Eigen::Vector2d::UnitX(), 0.1});
   const bool curve_ok = entry_curve.evaluate(0.1, flat);
   const auto se3_vec = xgc2_math::control::packState(se3_state);
@@ -115,7 +109,6 @@ int main()
          array_samples[0].measurement_accepted &&
          rls_sample.measurement_accepted &&
          pose3_inertial_eskf.initialized() &&
-         planar_eskf.initialized() &&
          curve_ok &&
          se3_vec.size() == 13 &&
          se2_u(1) > 0.1 &&

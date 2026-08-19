@@ -183,7 +183,7 @@ test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/occupied_sets
 test -f "${pkg_dir}/${filter_pkg}/usr/include/xgc2_math/filter/exponential_filter.hpp"
 test -f "${pkg_dir}/${observer_pkg}/usr/include/xgc2_math/observer/differentiator.hpp"
 test -f "${pkg_dir}/${estimation_pkg}/usr/include/xgc2_math/estimation/pose3_inertial_eskf.hpp"
-test -f "${pkg_dir}/${estimation_pkg}/usr/include/xgc2_math/estimation/pose2_inertial_eskf.hpp"
+test ! -f "${pkg_dir}/${estimation_pkg}/usr/include/xgc2_math/estimation/pose2_inertial_eskf.hpp"
 test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/optimization/minco.hpp"
 test -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/trajectory3.hpp"
 test -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analytic/2d/circle_2d.hpp"
