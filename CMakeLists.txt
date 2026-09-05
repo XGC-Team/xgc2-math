@@ -106,5 +106,13 @@ if(XGC2_MATH_BUILD_TESTING)
         GTest::gtest
     )
     add_test(NAME math_header_test COMMAND math_header_test)
+
+    add_executable(pose3_eskf_jacobian_test
+      test/pose3_eskf_jacobian_test.cpp
+    )
+    target_link_libraries(pose3_eskf_jacobian_test
+      PRIVATE xgc2_math::estimation
+    )
+    add_test(NAME pose3_eskf_jacobian_test COMMAND pose3_eskf_jacobian_test)
   endif()
 endif()
