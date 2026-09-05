@@ -1,0 +1,83 @@
+name: Apply focused ESKF Jacobian patch
+
+on:
+  push:
+    branches:
+      - fix/eskf-so3-pose-jacobian
+    paths:
+      - .github/workflows/apply-eskf-jacobian-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/eskf-so3-pose-jacobian
+          fetch-depth: 0
+
+      - name: Apply exact source patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('include/xgc2_math/estimation/pose3_inertial_eskf.hpp')
+          text = path.read_text(encoding='utf-8')
+
+          old_helper = '''inline Eigen::Matrix3d so3LeftJacobian(const Eigen::Vector3d& phi) {
+              return so3RightJacobian(-phi);
+          }
+          '''
+          new_helper = '''inline Eigen::Matrix3d so3LeftJacobian(const Eigen::Vector3d& phi) {
+              return so3RightJacobian(-phi);
+          }
+
+          inline Eigen::Matrix3d so3LeftJacobianInverse(const Eigen::Vector3d& phi) {
+              const double theta = phi.norm();
+              const Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();
+              if (!std::isfinite(theta) || theta <= 1.0e-12) {
+                  return identity;
+              }
+              const Eigen::Matrix3d skew = skewMatrix(phi);
+              const double theta2 = theta * theta;
+              double quadratic_coefficient = 1.0 / 12.0;
+              if (theta > 1.0e-4) {
+                  const double half_theta = 0.5 * theta;
+                  const double sin_half_theta = std::sin(half_theta);
+                  if (std::fabs(sin_half_theta) > 1.0e-12) {
+                      quadratic_coefficient =
+                          (1.0 - half_theta * std::cos(half_theta) / sin_half_theta) / theta2;
+                  }
+              } else {
+                  quadratic_coefficient += theta2 / 720.0;
+              }
+              return identity - 0.5 * skew + quadratic_coefficient * (skew * skew);
+          }
+          '''
+          if text.count(old_helper) != 1:
+              raise SystemExit('expected exactly one so3LeftJacobian helper anchor')
+          text = text.replace(old_helper, new_helper)
+
+          old_block = '''        H.block<3, 3>(3, 6) = -extrinsic_rotation_transpose;
+          '''
+          new_block = '''        const Eigen::Matrix3d orientation_log_jacobian_inverse =
+              pose3_inertial_eskf_detail::so3LeftJacobianInverse(innovation.tail<3>());
+          H.block<3, 3>(3, 6) = -orientation_log_jacobian_inverse * extrinsic_rotation_transpose;
+          '''
+          if text.count(old_block) != 1:
+              raise SystemExit('expected exactly one pose orientation Jacobian anchor')
+          text = text.replace(old_block, new_block)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit source patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add include/xgc2_math/estimation/pose3_inertial_eskf.hpp
+          git diff --cached --check
+          git commit -m 'fix: use full SO3 log Jacobian in ESKF pose update'
+          git push origin HEAD:fix/eskf-so3-pose-jacobian
