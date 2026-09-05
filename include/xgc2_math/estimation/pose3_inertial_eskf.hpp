@@ -181,6 +181,23 @@ inline Eigen::Matrix3d so3LeftJacobian(const Eigen::Vector3d& phi) {
     return so3RightJacobian(-phi);
 }
 
+// Differential of Log(Exp(delta) Exp(phi)) at delta = 0.
+// phi is a principal SO(3) log residual. The principal Log is not
+// differentiable across its pi branch cut; no chart change is performed here.
+inline Eigen::Matrix3d so3LeftJacobianInverse(const Eigen::Vector3d& phi) {
+    const double theta2 = phi.squaredNorm();
+    const Eigen::Matrix3d skew = skewMatrix(phi);
+    double coefficient;
+    if (theta2 < 1.0e-6) {
+        // Avoid cancellation in 1 - (theta/2) cot(theta/2) near zero.
+        coefficient = 1.0 / 12.0 + theta2 / 720.0 + theta2 * theta2 / 30240.0;
+    } else {
+        const double half_theta = 0.5 * std::sqrt(theta2);
+        coefficient = (1.0 - half_theta / std::tan(half_theta)) / theta2;
+    }
+    return Eigen::Matrix3d::Identity() - 0.5 * skew + coefficient * (skew * skew);
+}
+
 inline int poseIterationsOr(int value, int fallback) {
     if (value < 1) {
         return fallback;
@@ -912,7 +929,11 @@ class Pose3InertialEskf {
         H.block<3, 3>(0, 0) = -marker_rotation_transpose;
         H.block<3, 3>(0, 6) =
             residual_position_skew * extrinsic_rotation_transpose + extrinsic_rotation_transpose * marker_offset_skew;
-        H.block<3, 3>(3, 6) = -extrinsic_rotation_transpose;
+        // R_pred changes to R_pred Exp(R_bm^T delta_theta), hence the
+        // residual changes as Log(Exp(-R_bm^T delta_theta) Exp(r_R)).
+        // -R_bm^T alone is exact only at zero orientation residual.
+        H.block<3, 3>(3, 6) =
+            -pose3_inertial_eskf_detail::so3LeftJacobianInverse(innovation.tail<3>()) * extrinsic_rotation_transpose;
 
         return H;
     }
