@@ -181,6 +181,28 @@ inline Eigen::Matrix3d so3LeftJacobian(const Eigen::Vector3d& phi) {
     return so3RightJacobian(-phi);
 }
 
+inline Eigen::Matrix3d so3LeftJacobianInverse(const Eigen::Vector3d& phi) {
+    const double theta = phi.norm();
+    const Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();
+    if (!std::isfinite(theta) || theta <= 1.0e-12) {
+        return identity;
+    }
+    const Eigen::Matrix3d skew = skewMatrix(phi);
+    const double theta2 = theta * theta;
+    double quadratic_coefficient = 1.0 / 12.0;
+    if (theta > 1.0e-4) {
+        const double half_theta = 0.5 * theta;
+        const double sin_half_theta = std::sin(half_theta);
+        if (std::fabs(sin_half_theta) > 1.0e-12) {
+            quadratic_coefficient =
+                (1.0 - half_theta * std::cos(half_theta) / sin_half_theta) / theta2;
+        }
+    } else {
+        quadratic_coefficient += theta2 / 720.0;
+    }
+    return identity - 0.5 * skew + quadratic_coefficient * (skew * skew);
+}
+
 inline int poseIterationsOr(int value, int fallback) {
     if (value < 1) {
         return fallback;
@@ -912,7 +934,9 @@ class Pose3InertialEskf {
         H.block<3, 3>(0, 0) = -marker_rotation_transpose;
         H.block<3, 3>(0, 6) =
             residual_position_skew * extrinsic_rotation_transpose + extrinsic_rotation_transpose * marker_offset_skew;
-        H.block<3, 3>(3, 6) = -extrinsic_rotation_transpose;
+        const Eigen::Matrix3d orientation_log_jacobian_inverse =
+    pose3_inertial_eskf_detail::so3LeftJacobianInverse(innovation.tail<3>());
+H.block<3, 3>(3, 6) = -orientation_log_jacobian_inverse * extrinsic_rotation_transpose;
 
         return H;
     }
