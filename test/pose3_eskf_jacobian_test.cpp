@@ -139,8 +139,8 @@ void testPublicUpdateAndReplay() {
             filter.initializeFromPose(poseSample(1.0, initial));
             auto measured = initial;
             measured.position += Vector(0.08, -0.03, 0.02);
-            measured.orientation = xgc2_math::normalizedQuaternion(
-                measured.orientation * xgc2_math::expMap(Vector(0.3, -0.2, 0.1)));
+            measured.orientation =
+                xgc2_math::normalizedQuaternion(measured.orientation * xgc2_math::expMap(Vector(0.3, -0.2, 0.1)));
             const double before = Access::residual(filter.state(), measured).norm();
             require(filter.updatePose(poseSample(1.01, measured)).accepted, "moderate pose update rejected");
             require(Access::residual(filter.state(), measured).norm() < before, "pose update did not reduce residual");
