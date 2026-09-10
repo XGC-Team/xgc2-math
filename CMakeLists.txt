@@ -114,5 +114,13 @@ if(XGC2_MATH_BUILD_TESTING)
       PRIVATE xgc2_math::estimation
     )
     add_test(NAME pose3_eskf_jacobian_test COMMAND pose3_eskf_jacobian_test)
+
+    add_executable(numerical_regression_test
+      test/numerical_regression_test.cpp
+    )
+    target_link_libraries(numerical_regression_test
+      PRIVATE xgc2_math::math
+    )
+    add_test(NAME numerical_regression_test COMMAND numerical_regression_test)
   endif()
 endif()

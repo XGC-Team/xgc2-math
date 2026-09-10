@@ -538,7 +538,8 @@ inline void dynamicPenalty(const Eigen::VectorXd& times, const Eigen::MatrixX3d&
             double yaw_rate_grad = 0.0;
             flatmap.backward(Eigen::Vector3d::Zero(), grad_vel, grad_thrust, grad_quat, grad_omega, flat_grad_pos,
                              flat_grad_vel, flat_grad_acc, flat_grad_jerk, yaw_grad, yaw_rate_grad);
-            grad_vel += flat_grad_vel;
+            // backward already includes the direct velocity gradient.
+            grad_vel = flat_grad_vel;
             grad_acc += flat_grad_acc;
             grad_jerk += flat_grad_jerk;
 
@@ -985,8 +986,10 @@ inline FullStateReference3 FlatnessMapper3::map(const FlatOutput3& flat) const {
         const Eigen::Vector3d fallback =
             std::abs(b3.dot(Eigen::Vector3d::UnitY())) > 0.95 ? Eigen::Vector3d::UnitX() : Eigen::Vector3d::UnitY();
         y_raw = b3.cross(fallback);
-        y_raw_dot.setZero();
-        y_raw_ddot.setZero();
+        // The fallback axis is locally constant, but b3 still moves.  Its
+        // derivatives must also be used to differentiate the returned frame.
+        y_raw_dot = b3_dot.cross(fallback);
+        y_raw_ddot = b3_ddot.cross(fallback);
     }
 
     const Eigen::Vector3d yb = trajectory3_detail::normalizeOr(y_raw, Eigen::Vector3d::UnitY());

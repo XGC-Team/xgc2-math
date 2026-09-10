@@ -58,6 +58,8 @@ inline ScalarRecursiveLeastSquaresOptions normalized(ScalarRecursiveLeastSquares
     if (!std::isfinite(options.max_covariance) || options.max_covariance < options.min_covariance) {
         options.max_covariance = std::max(defaults.max_covariance, options.min_covariance);
     }
+    options.initial_covariance =
+        std::clamp(options.initial_covariance, options.min_covariance, options.max_covariance);
     return options;
 }
 
@@ -123,14 +125,19 @@ class ScalarRecursiveLeastSquares {
         const double gain = covariance_ * regressor / denominator;
         const double residual = measurement - regressor * parameter_;
         const double next_parameter = parameter_ + gain * residual;
-        const double next_covariance = (1.0 - gain * regressor) * covariance_ / options_.forgetting_factor;
+        // Algebraically P / (lambda + phi * P * phi).  Avoid subtracting
+        // gain * phi from one: it can round to one for informative samples,
+        // spuriously resetting the covariance to its initial value.
+        const double next_covariance = covariance_ / denominator;
 
         if (!std::isfinite(next_parameter) || !std::isfinite(next_covariance)) {
             return sample(residual, gain, ScalarRecursiveLeastSquaresStatus::kHeldInvalidInput, false);
         }
 
         parameter_ = next_parameter;
-        covariance_ = clampCovariance(next_covariance);
+        // A positive update can underflow to zero; it belongs at the lower
+        // bound, not at the initial covariance used for invalid reset inputs.
+        covariance_ = std::clamp(next_covariance, options_.min_covariance, options_.max_covariance);
         return sample(residual, gain, ScalarRecursiveLeastSquaresStatus::kAccepted, true);
     }
 

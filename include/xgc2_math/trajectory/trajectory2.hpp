@@ -183,21 +183,25 @@ inline std::vector<double> septicBoundary(double p0, double v0, double a0, doubl
     c[2] = 0.5 * a0;
     c[3] = j0 / 6.0;
 
-    Eigen::Matrix4d A;
-    Eigen::Vector4d b;
+    // Solve in normalized time u = t / T.  A system built from T^4,...,T^7
+    // becomes numerically rank deficient for short or long segments, even
+    // though the Hermite boundary problem is nonsingular for every T > 0.
     const double T2 = T * T;
     const double T3 = T2 * T;
-    const double T4 = T3 * T;
-    const double T5 = T4 * T;
-    const double T6 = T5 * T;
-    const double T7 = T6 * T;
-    A << T4, T5, T6, T7, 4.0 * T3, 5.0 * T4, 6.0 * T5, 7.0 * T6, 12.0 * T2, 20.0 * T3, 30.0 * T4, 42.0 * T5, 24.0 * T,
-        60.0 * T2, 120.0 * T3, 210.0 * T4;
-    b << p1 - (c[0] + c[1] * T + c[2] * T2 + c[3] * T3), v1 - (c[1] + 2.0 * c[2] * T + 3.0 * c[3] * T2),
-        a1 - (2.0 * c[2] + 6.0 * c[3] * T), j1 - (6.0 * c[3]);
-    const Eigen::Vector4d tail = A.colPivHouseholderQr().solve(b);
+    const double r0 = p1 - (p0 + v0 * T + 0.5 * a0 * T2 + j0 * T3 / 6.0);
+    const double r1 = (v1 - v0) * T - a0 * T2 - 0.5 * j0 * T3;
+    const double r2 = (a1 - a0) * T2 - j0 * T3;
+    const double r3 = (j1 - j0) * T3;
+    const double tail[4] = {
+        35.0 * r0 - 15.0 * r1 + 2.5 * r2 - r3 / 6.0,
+        -84.0 * r0 + 39.0 * r1 - 7.0 * r2 + 0.5 * r3,
+        70.0 * r0 - 34.0 * r1 + 6.5 * r2 - 0.5 * r3,
+        -20.0 * r0 + 10.0 * r1 - 2.0 * r2 + r3 / 6.0,
+    };
+    double inverse_power = 1.0 / (T2 * T2);
     for (int i = 0; i < 4; ++i) {
-        c[static_cast<size_t>(i) + 4U] = tail(i);
+        c[static_cast<size_t>(i) + 4U] = tail[i] * inverse_power;
+        inverse_power /= T;
     }
     return c;
 }

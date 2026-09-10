@@ -120,7 +120,9 @@ inline Eigen::Matrix3d rotationFromBodyZAndYaw(const Eigen::Vector3d& body_z, do
     Eigen::Vector3d x_c(std::cos(yaw), std::sin(yaw), 0.0);
     Eigen::Vector3d y_b = z_b.cross(x_c);
     if (!std::isfinite(y_b.norm()) || y_b.norm() < 1.0e-8) {
-        x_c = Eigen::Vector3d::UnitY();
+        // UnitY is also singular when body_z is parallel to the Y axis.
+        // Choose a reference axis that is guaranteed not to be parallel.
+        x_c = std::abs(z_b.y()) > 0.95 ? Eigen::Vector3d::UnitX() : Eigen::Vector3d::UnitY();
         y_b = z_b.cross(x_c);
     }
     y_b = normalizedVectorOr(y_b, Eigen::Vector3d::UnitY());

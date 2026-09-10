@@ -28,10 +28,21 @@ inline bool isFinite(const Pose3& pose) {
 }
 
 inline Eigen::Quaterniond normalizedQuaternion(Eigen::Quaterniond q) {
-    if (!isFinite(q) || q.norm() <= 1.0e-12) {
+    if (!isFinite(q)) {
         return Eigen::Quaterniond::Identity();
     }
-    q.normalize();
+    // Scale before taking the norm so finite coefficients cannot overflow
+    // the sum of squares and normalize to an all-zero quaternion.
+    const double scale = q.coeffs().cwiseAbs().maxCoeff();
+    if (scale == 0.0) {
+        return Eigen::Quaterniond::Identity();
+    }
+    q.coeffs() /= scale;
+    const double scaled_norm = q.norm();
+    if (scale <= 1.0e-12 && scale * scaled_norm <= 1.0e-12) {
+        return Eigen::Quaterniond::Identity();
+    }
+    q.coeffs() /= scaled_norm;
     if (q.w() < 0.0) {
         q.coeffs() *= -1.0;
     }
