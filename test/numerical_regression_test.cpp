@@ -203,9 +203,9 @@ void dynamicPenaltyGradient() {
     problem.limits.max_velocity = 1.0;
     Eigen::VectorXd times = Eigen::VectorXd::Constant(1, 1.3);
     Eigen::MatrixX3d coefficients = Eigen::MatrixX3d::Zero(6, 3);
-    coefficients.row(1) << 2.0, 0.2, 0.1;
-    coefficients.row(2) << 0.2, -0.1, 0.03;
-    coefficients.row(3) << 0.03, 0.02, -0.01;
+    coefficients.row(1) = Eigen::RowVector3d(2.0, 0.2, 0.1);
+    coefficients.row(2) = Eigen::RowVector3d(0.2, -0.1, 0.03);
+    coefficients.row(3) = Eigen::RowVector3d(0.03, 0.02, -0.01);
     const auto penalty = [&](const Eigen::VectorXd& t, const Eigen::MatrixX3d& c) {
         double value = 0.0;
         Eigen::VectorXd time_gradient = Eigen::VectorXd::Zero(t.size());
