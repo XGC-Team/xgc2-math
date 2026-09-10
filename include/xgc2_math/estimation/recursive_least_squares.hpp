@@ -58,8 +58,7 @@ inline ScalarRecursiveLeastSquaresOptions normalized(ScalarRecursiveLeastSquares
     if (!std::isfinite(options.max_covariance) || options.max_covariance < options.min_covariance) {
         options.max_covariance = std::max(defaults.max_covariance, options.min_covariance);
     }
-    options.initial_covariance =
-        std::clamp(options.initial_covariance, options.min_covariance, options.max_covariance);
+    options.initial_covariance = std::clamp(options.initial_covariance, options.min_covariance, options.max_covariance);
     return options;
 }
 

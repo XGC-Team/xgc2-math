@@ -74,8 +74,8 @@ void rlsInformationFormReference() {
     for (int i = 0; i < 400; ++i) {
         const double phi = 0.2 + std::sin(static_cast<double>(i) * 0.17);
         const double measurement = 3.5 * phi + 0.03 * std::cos(static_cast<double>(i) * 0.37);
-        precision = static_cast<long double>(options.forgetting_factor) * precision +
-                    static_cast<long double>(phi) * phi;
+        precision =
+            static_cast<long double>(options.forgetting_factor) * precision + static_cast<long double>(phi) * phi;
         information = static_cast<long double>(options.forgetting_factor) * information +
                       static_cast<long double>(phi) * measurement;
         const auto sample = estimator.update(measurement, phi);
@@ -150,8 +150,8 @@ void septicNormalizedBoundaryConditions() {
 
 void analyticSepticBoundaryConditions() {
     for (double duration : {1.0e-6, 1.0e-4, 0.1, 1.0, 1000.0, 1.0e6}) {
-        const auto coefficients = xgc2_math::trajectory::analytic_detail::septicBoundary(
-            0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, duration);
+        const auto coefficients =
+            xgc2_math::trajectory::analytic_detail::septicBoundary(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, duration);
         requireNear(xgc2_math::trajectory::analytic_detail::polyValue(coefficients, duration, 0), 1.0, 1.0e-11,
                     "analytic entry polynomial did not reach its endpoint");
     }
