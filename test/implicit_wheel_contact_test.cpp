@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -135,10 +136,12 @@ int main() {
         for (int trial = 0; trial < 1200; ++trial) {
             in = fixture();
             in.dt_s = trial % 3 == 0 ? .001 : (trial % 3 == 1 ? .004 : .02);
-            for (double& v : in.velocity)
-                v = unif(rng) * 8;
-            for (double& f : in.external_force)
-                f = unif(rng) * 3;
+            std::generate(in.velocity.begin(), in.velocity.end(), [&] {
+                return unif(rng) * 8;
+            });
+            std::generate(in.external_force.begin(), in.external_force.end(), [&] {
+                return unif(rng) * 3;
+            });
             for (int i = 0; i < 4; ++i) {
                 s.drive_error_rad[i] = unif(rng);
                 s.tread_m[i] = {unif(rng) * .02, unif(rng) * .02};
