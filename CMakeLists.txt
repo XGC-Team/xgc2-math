@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_math VERSION 0.5.7 LANGUAGES CXX)
+project(xgc2_math VERSION 0.5.8 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -122,5 +122,9 @@ if(XGC2_MATH_BUILD_TESTING)
       PRIVATE xgc2_math::math
     )
     add_test(NAME numerical_regression_test COMMAND numerical_regression_test)
+
+    add_executable(delayed_planar_velocity_test test/delayed_planar_velocity_test.cpp)
+    target_link_libraries(delayed_planar_velocity_test PRIVATE xgc2_math::control)
+    add_test(NAME delayed_planar_velocity_test COMMAND delayed_planar_velocity_test)
   endif()
 endif()
