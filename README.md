@@ -59,3 +59,10 @@ Estimation algorithms are ROS-independent and live under
 `include/xgc2_math/estimation`. Matlab references for nonlinear estimator
 simulation live under `matlab/`, and C++ tests cover SE3 operations, filtering,
 RLS, observers, and inertial pose estimation edge cases.
+
+`control/wheel_drive.hpp` provides calibrated differential-drive wheel allocation
+and an incremental I-P wheel velocity controller. Inputs use metres, radians,
+seconds and newton metres; controller state and time steps are explicit. The
+existing `filter/slew_rate_limiter.hpp` supplies finite rate limits. These headers
+have no ROS or Gazebo dependency. Adapters own configuration, clocks, message and
+joint I/O; tire contact and collision integration belong to the physics engine.

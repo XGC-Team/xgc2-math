@@ -7,6 +7,7 @@
 
 #include "xgc2_math/algebra/angle.hpp"
 #include "xgc2_math/control/se3_nmpc_problem.hpp"
+#include "xgc2_math/control/wheel_drive.hpp"
 #include "xgc2_math/estimation/recursive_least_squares.hpp"
 #include "xgc2_math/geometry/se3.hpp"
 #include "xgc2_math/trajectory/analytic/detail.hpp"
@@ -245,6 +246,39 @@ void flatnessFallbackDerivatives() {
     checkFlatnessDerivatives(true);
 }
 
+void wheelAllocationInvariants() {
+    const xgc2_math::DifferentialDriveParameters geometry{0.08, 0.416503, 1.04, 2.3};
+    const auto forward = xgc2_math::differentialDriveWheelVelocity(0.5, 0.0, geometry);
+    requireNear(forward.left_rad_s, 6.5, 1.0e-14, "forward allocation units or gain");
+    requireNear(forward.right_rad_s, forward.left_rad_s, 0.0, "straight drive must be symmetric");
+    const auto turn = xgc2_math::differentialDriveWheelVelocity(0.0, 0.4, geometry);
+    require(turn.left_rad_s < 0 && turn.right_rad_s > 0, "positive yaw wheel signs");
+    requireNear(turn.left_rad_s, -turn.right_rad_s, 0.0, "pure turn symmetry");
+    const auto combined = xgc2_math::differentialDriveWheelVelocity(0.5, 0.4, geometry);
+    requireNear(combined.left_rad_s, forward.left_rad_s + turn.left_rad_s, 1.0e-14, "allocation superposition");
+    requireNear(combined.right_rad_s, forward.right_rad_s + turn.right_rad_s, 1.0e-14, "allocation superposition");
+}
+
+void wheelIPStateAndTime() {
+    const xgc2_math::WheelVelocityIPParameters gains{1.8, 16.0, 6.0};
+    xgc2_math::WheelVelocityIPState state{0.0, 2.0};
+    const auto paused = xgc2_math::wheelVelocityIPStep(state, 9.0, 3.0, 0.0, gains);
+    require(paused.effort_nm == 0.0 && paused.previous_velocity_rad_s == 2.0, "paused time must retain state");
+    const auto full = xgc2_math::wheelVelocityIPStep(state, 4.0, 2.0, 0.004, gains);
+    auto halves = xgc2_math::wheelVelocityIPStep(state, 4.0, 2.0, 0.002, gains);
+    halves = xgc2_math::wheelVelocityIPStep(halves, 4.0, 2.0, 0.002, gains);
+    requireNear(full.effort_nm, 0.128, 1.0e-14, "setpoint change must not cause a proportional kick");
+    requireNear(halves.effort_nm, full.effort_nm, 1.0e-14, "constant error must integrate elapsed seconds");
+    for (int k = 0; k < 1000; ++k) {
+        state = xgc2_math::wheelVelocityIPStep(state, 20.0, 2.0, 0.004, gains);
+    }
+    requireNear(state.effort_nm, 6.0, 0.0, "effort saturation");
+    state = xgc2_math::wheelVelocityIPStep(state, 0.0, 2.0, 0.004, gains);
+    require(state.effort_nm < 6.0, "reversal must leave saturation without hidden integral windup");
+    state = xgc2_math::wheelVelocityIPStep({0.0, 2.0}, 3.0, 3.0, 0.004, gains);
+    requireNear(state.effort_nm, -1.8, 1.0e-14, "proportional action must use measured velocity");
+}
+
 } // namespace
 
 int main() {
@@ -252,7 +286,7 @@ int main() {
         const char* name;
         void (*run)();
     };
-    const std::array<TestCase, 12> tests{{
+    const std::array<TestCase, 14> tests{{
         {"RLS informative sample", rlsInformativeSample},
         {"RLS covariance bounds", rlsCovarianceBounds},
         {"RLS underflow and invalid input", rlsUnderflowAndInvalidInput},
@@ -265,6 +299,8 @@ int main() {
         {"dynamic penalty gradient", dynamicPenaltyGradient},
         {"flatness regular derivatives", flatnessRegularDerivatives},
         {"flatness fallback derivatives", flatnessFallbackDerivatives},
+        {"wheel allocation invariants", wheelAllocationInvariants},
+        {"wheel I-P state and time", wheelIPStateAndTime},
     }};
     int failures = 0;
     for (const auto& test : tests) {
