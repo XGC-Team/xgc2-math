@@ -1,0 +1,20 @@
+name: Implicit wheel contact math
+on:
+  pull_request:
+    paths:
+      - 'include/xgc2_math/control/implicit_wheel_contact.hpp'
+      - 'test/implicit_wheel_contact_test.cpp'
+      - '.github/workflows/implicit-wheel-math.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  numerical-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and check numerical invariants
+        run: |
+          g++ -std=c++17 -O1 -g -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer -Iinclude test/implicit_wheel_contact_test.cpp -o /tmp/implicit-wheel-test
+          /tmp/implicit-wheel-test
