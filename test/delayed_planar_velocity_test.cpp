@@ -16,10 +16,14 @@ void near(double actual, double expected, double tolerance = 1e-12) {
 }
 template <typename F> void rejects(F operation) {
     ++checks;
-    try { operation(); } catch (const std::invalid_argument&) { return; }
+    try {
+        operation();
+    } catch (const std::invalid_argument&) {
+        return;
+    }
     throw std::runtime_error("invalid input was accepted");
 }
-}  // namespace
+} // namespace
 
 int main() {
     using xgc2_math::DelayedPlanarVelocity;
@@ -55,18 +59,21 @@ int main() {
             small.command(times[i], u);
         }
         large.advance(0.080);
-        for (int i = 1; i <= 80; ++i) small.advance(0.001 * i);
+        for (int i = 1; i <= 80; ++i)
+            small.advance(0.001 * i);
         near(large.velocity().linear_m_s, small.velocity().linear_m_s);
         near(large.velocity().yaw_rad_s, small.velocity().yaw_rad_s);
 
         for (double h : {0.001, 0.002, 0.004, 0.010, 0.100}) {
             DelayedPlanarVelocity stepped;
             stepped.command(0.0, {1.0, 1.0});
-            for (int k = 1; k * h < 0.100; ++k) stepped.advance(k * h);
+            for (int k = 1; k * h < 0.100; ++k)
+                stepped.advance(k * h);
             near(stepped.advance(0.100).linear_m_s, 1.0 - std::exp(-19.0));
         }
         DelayedPlanarVelocity paused;
-        for (int i = 0; i < 10000; ++i) paused.command(0.0, {i * 0.0001, 0.0});
+        for (int i = 0; i < 10000; ++i)
+            paused.command(0.0, {i * 0.0001, 0.0});
         near(static_cast<double>(paused.pendingCommands()), 1.0);
         near(paused.advance(0.0).linear_m_s, 0.0);
         near(paused.advance(0.010).linear_m_s, 0.9999 * (1.0 - std::exp(-1.0)));
@@ -77,7 +84,7 @@ int main() {
         near(static_cast<double>(paused.pendingCommands()), 0.0);
         near(paused.advance(2.0).yaw_rad_s, 0.0);
         paused.command(2.0, {1.0, 1.0});
-        near(paused.advance(0.0).linear_m_s, 0.0);  // clock rollback
+        near(paused.advance(0.0).linear_m_s, 0.0); // clock rollback
         near(paused.advance(2.1).linear_m_s, 0.0);
         // Explicit zero-delay/zero-lag limit, never used by Scout defaults.
         DelayedPlanarVelocity ideal({0.0, 0.0, 0.0});
@@ -85,20 +92,36 @@ int main() {
         near(ideal.advance(0.0).linear_m_s, 0.4);
         near(ideal.velocity().yaw_rad_s, -0.2);
         const double nan = std::numeric_limits<double>::quiet_NaN();
-        rejects([&] { DelayedPlanarVelocity bad({-0.001, 0.005, 0.005}); });
-        rejects([&] { DelayedPlanarVelocity bad({0.005, nan, 0.005}); });
-        rejects([&] { ideal.command(0.0, {nan, 0.0}); });
-        rejects([&] { ideal.advance(nan); });
-        rejects([&] { ideal.command(-0.001, {}); });
-        rejects([&] { ideal.reset(nan); });
+        rejects([&] {
+            DelayedPlanarVelocity bad({-0.001, 0.005, 0.005});
+        });
+        rejects([&] {
+            DelayedPlanarVelocity bad({0.005, nan, 0.005});
+        });
+        rejects([&] {
+            ideal.command(0.0, {nan, 0.0});
+        });
+        rejects([&] {
+            ideal.advance(nan);
+        });
+        rejects([&] {
+            ideal.command(-0.001, {});
+        });
+        rejects([&] {
+            ideal.reset(nan);
+        });
 
         DelayedPlanarVelocity extremes({0.0, 0.005, 0.005});
         extremes.command(0.0, {1e308, 0.0});
         near(extremes.advance(1.0).linear_m_s, 1e308, 1e293);
         extremes.command(1.0, {-1e308, 0.0});
         near(extremes.advance(2.0).linear_m_s, -1e308, 1e293);
-        rejects([&] { DelayedPlanarVelocity bad({0.005, -1.0, 0.005}); });
-        rejects([&] { extremes.command(2.0, {std::numeric_limits<double>::infinity(), 0.0}); });
+        rejects([&] {
+            DelayedPlanarVelocity bad({0.005, -1.0, 0.005});
+        });
+        rejects([&] {
+            extremes.command(2.0, {std::numeric_limits<double>::infinity(), 0.0});
+        });
 
         using xgc2_math::wheelContactKinematics;
         const auto straight = wheelContactKinematics(0.4, 0.0, 0.0, 0.2255, 0.245, 0.4);
@@ -112,7 +135,7 @@ int main() {
         near(xgc2_math::wheelContactPower(slipping, 2.0, -1.0),
              -2.0 * slipping.longitudinal_slip_m_s - slipping.lateral_slip_m_s);
         const auto rest = wheelContactKinematics(0.0, 0.0, 0.0, 0.2255, 0.245, 0.0);
-        near(rest.longitudinal_slip_m_s, 0.0);  // no division by |v| at standstill
+        near(rest.longitudinal_slip_m_s, 0.0); // no division by |v| at standstill
         std::cout << checks << " checks passed\n";
     } catch (const std::exception& e) {
         std::cerr << e.what() << '\n';

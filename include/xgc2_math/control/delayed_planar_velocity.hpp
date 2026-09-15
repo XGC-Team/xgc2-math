@@ -24,7 +24,7 @@ struct DelayedPlanarVelocityParameters {
 // No ROS clock, wall clock, pose integration, command gain, or wheel controller.
 // The caller serializes command(), advance(), and reset(), and applies limits.
 class DelayedPlanarVelocity {
-public:
+  public:
     explicit DelayedPlanarVelocity(DelayedPlanarVelocityParameters parameters = {}) : parameters_(parameters) {
         requireNonnegative(parameters_.delay_s);
         requireNonnegative(parameters_.linear_time_constant_s);
@@ -74,8 +74,10 @@ public:
             target_ = pending_.front().input;
             pending_.pop_front();
             // Explicit zero-tau semantics; positive tau has no direct feedthrough.
-            if (parameters_.linear_time_constant_s == 0.0) state_.linear_m_s = target_.linear_m_s;
-            if (parameters_.yaw_time_constant_s == 0.0) state_.yaw_rad_s = target_.yaw_rad_s;
+            if (parameters_.linear_time_constant_s == 0.0)
+                state_.linear_m_s = target_.linear_m_s;
+            if (parameters_.yaw_time_constant_s == 0.0)
+                state_.yaw_rad_s = target_.yaw_rad_s;
         }
         integrate(now_s);
         return state_;
@@ -85,21 +87,24 @@ public:
     double time() const { return time_s_; }
     std::size_t pendingCommands() const { return pending_.size(); }
 
-private:
+  private:
     struct Event {
         double release_s;
         PlanarVelocity input;
     };
     static constexpr std::size_t kMaxPendingCommands = 4096;
     static void requireFinite(double value) {
-        if (!std::isfinite(value)) throw std::invalid_argument("planar model input must be finite");
+        if (!std::isfinite(value))
+            throw std::invalid_argument("planar model input must be finite");
     }
     static void requireNonnegative(double value) {
         requireFinite(value);
-        if (value < 0.0) throw std::invalid_argument("planar delay and time constants must be nonnegative");
+        if (value < 0.0)
+            throw std::invalid_argument("planar delay and time constants must be nonnegative");
     }
     static double lag(double state, double target, double dt_s, double tau_s) {
-        if (tau_s == 0.0) return target;
+        if (tau_s == 0.0)
+            return target;
         // Exact ZOH discretization, stable for any nonnegative dt/tau.
         const double alpha = -std::expm1(-dt_s / tau_s);
         // Convex form avoids overflow in (target-state) for finite extremes.
@@ -118,4 +123,4 @@ private:
     std::deque<Event> pending_;
 };
 
-}  // namespace xgc2_math
+} // namespace xgc2_math
