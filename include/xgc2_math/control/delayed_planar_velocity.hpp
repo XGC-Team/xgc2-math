@@ -25,7 +25,7 @@ struct DelayedPlanarVelocityParameters {
 // The caller serializes command(), advance(), and reset(), and applies limits.
 class DelayedPlanarVelocity {
   public:
-    explicit DelayedPlanarVelocity(DelayedPlanarVelocityParameters parameters = {}) : parameters_(parameters) {
+    explicit DelayedPlanarVelocity(const DelayedPlanarVelocityParameters& parameters = {}) : parameters_(parameters) {
         requireNonnegative(parameters_.delay_s);
         requireNonnegative(parameters_.linear_time_constant_s);
         requireNonnegative(parameters_.yaw_time_constant_s);
