@@ -29,16 +29,15 @@ struct SmcTrackingOutput {
 // s = e_v + sign(z) sqrt(|z|), u = a_ref - k1 sat(s / rho).
 // Gravity, thrust normalization and attitude/rate control belong to the
 // vehicle's existing inner loop, not this translational feedback law.
-inline SmcTrackingOutput computeSmcTracking(
-    const SmcTrackingConfig& config, const Eigen::Vector3d& measured_position,
-    const Eigen::Vector3d& measured_velocity, const Eigen::Vector3d& reference_position,
-    const Eigen::Vector3d& reference_velocity, const Eigen::Vector3d& reference_acceleration) {
+inline SmcTrackingOutput computeSmcTracking(const SmcTrackingConfig& config, const Eigen::Vector3d& measured_position,
+                                            const Eigen::Vector3d& measured_velocity,
+                                            const Eigen::Vector3d& reference_position,
+                                            const Eigen::Vector3d& reference_velocity,
+                                            const Eigen::Vector3d& reference_acceleration) {
     SmcTrackingOutput out;
-    if (!std::isfinite(config.k1) || config.k1 <= 0.0 ||
-        !std::isfinite(config.k2) || config.k2 <= 0.0 ||
-        !std::isfinite(config.boundary_layer) || config.boundary_layer <= 0.0 ||
-        !measured_position.allFinite() || !measured_velocity.allFinite() ||
-        !reference_position.allFinite() || !reference_velocity.allFinite() ||
+    if (!std::isfinite(config.k1) || config.k1 <= 0.0 || !std::isfinite(config.k2) || config.k2 <= 0.0 ||
+        !std::isfinite(config.boundary_layer) || config.boundary_layer <= 0.0 || !measured_position.allFinite() ||
+        !measured_velocity.allFinite() || !reference_position.allFinite() || !reference_velocity.allFinite() ||
         !reference_acceleration.allFinite()) {
         return out;
     }
@@ -46,16 +45,14 @@ inline SmcTrackingOutput computeSmcTracking(
     out.velocity_error = measured_velocity - reference_velocity;
     for (int axis = 0; axis < 3; ++axis) {
         const double velocity = out.velocity_error[axis];
-        const double z = velocity * std::abs(velocity) +
-                         config.k2 * std::atan(out.position_error[axis]);
+        const double z = velocity * std::abs(velocity) + config.k2 * std::atan(out.position_error[axis]);
         out.sliding[axis] = velocity + std::copysign(std::sqrt(std::abs(z)), z);
-        out.feedback[axis] = -config.k1 *
-                             std::clamp(out.sliding[axis] / config.boundary_layer, -1.0, 1.0);
+        out.feedback[axis] = -config.k1 * std::clamp(out.sliding[axis] / config.boundary_layer, -1.0, 1.0);
     }
     out.acceleration = reference_acceleration + out.feedback;
-    out.success = out.position_error.allFinite() && out.velocity_error.allFinite() &&
-                  out.sliding.allFinite() && out.acceleration.allFinite();
+    out.success = out.position_error.allFinite() && out.velocity_error.allFinite() && out.sliding.allFinite() &&
+                  out.acceleration.allFinite();
     return out;
 }
 
-}  // namespace xgc2_math::control
+} // namespace xgc2_math::control
