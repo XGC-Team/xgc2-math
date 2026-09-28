@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_math VERSION 0.5.9 LANGUAGES CXX)
+project(xgc2_math VERSION 0.5.10 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -126,6 +126,10 @@ if(XGC2_MATH_BUILD_TESTING)
     add_executable(delayed_planar_velocity_test test/delayed_planar_velocity_test.cpp)
     target_link_libraries(delayed_planar_velocity_test PRIVATE xgc2_math::control)
     add_test(NAME delayed_planar_velocity_test COMMAND delayed_planar_velocity_test)
+
+    add_executable(simulation_kinematics_test test/simulation_kinematics_test.cpp)
+    target_link_libraries(simulation_kinematics_test PRIVATE xgc2_math::geometry)
+    add_test(NAME simulation_kinematics_test COMMAND simulation_kinematics_test)
 
     add_executable(smc_tracking_test test/smc_tracking_test.cpp)
     target_link_libraries(smc_tracking_test PRIVATE xgc2_math::control)

@@ -1,4 +1,5 @@
 #include "xgc2_math/control/smc_tracking_controller.hpp"
+#include "xgc2_math/geometry/kinematics.hpp"
 
 #include <iostream>
 #include <limits>
@@ -44,8 +45,9 @@ int main() {
             const auto u = computeSmcTracking(config, p, v, 0.5 * t * t * acceleration, t * acceleration, acceleration);
             require(u.success && u.feedback.cwiseAbs().maxCoeff() <= config.k1, "bounded finite sampled feedback");
             const Vector3d applied = u.acceleration + disturbance;
-            p += dt * v + 0.5 * dt * dt * applied;
-            v += dt * applied;
+            const auto next = xgc2_math::stepWorldAcceleration({p, v}, applied, dt);
+            p = next.position;
+            v = next.velocity;
         }
         const double position_error = (p - 0.5 * 30.0 * 30.0 * acceleration).norm();
         const double velocity_error = (v - 30.0 * acceleration).norm();

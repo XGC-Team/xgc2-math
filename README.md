@@ -66,3 +66,7 @@ seconds and newton metres; controller state and time steps are explicit. The
 existing `filter/slew_rate_limiter.hpp` supplies finite rate limits. These headers
 have no ROS or Gazebo dependency. Adapters own configuration, clocks, message and
 joint I/O; tire contact and collision integration belong to the physics engine.
+
+`geometry/kinematics.hpp` provides exact constant-acceleration translation and
+constant-body-velocity planar motion. Callers supply elapsed time and actual
+control inputs; the functions do not add a tracking controller or collision response.
