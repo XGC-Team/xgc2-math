@@ -30,6 +30,7 @@ required_files=(
   .clang-format
   .clang-tidy
   README.md
+  NOTICE
   CMakeLists.txt
   cmake/xgc2_mathConfig.cmake.in
   include/xgc2_math/math.hpp
@@ -53,6 +54,9 @@ required_files=(
   include/xgc2_math/observer/differentiator.hpp
   include/xgc2_math/estimation/pose3_inertial_eskf.hpp
   include/xgc2_math/optimization/minco.hpp
+  include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp
+  include/xgc2_math/third_party/lbfgs_lite/LICENSE
+  include/xgc2_math/third_party/lbfgs_lite/source.json
   include/xgc2_math/trajectory/trajectory3.hpp
   include/xgc2_math/trajectory/analytic/2d/circle_entry_2d.hpp
   include/xgc2_math/trajectory/analytic/3d/circle_entry_3d.hpp

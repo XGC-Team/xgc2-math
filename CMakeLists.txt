@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_math VERSION 0.5.10 LANGUAGES CXX)
+project(xgc2_math VERSION 0.5.11 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -60,7 +60,7 @@ install(DIRECTORY include/xgc2_math/
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/xgc2_math
 )
 
-install(FILES README.md
+install(FILES README.md NOTICE
   DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/libxgc2-math-dev
 )
 
@@ -106,6 +106,10 @@ if(XGC2_MATH_BUILD_TESTING)
         GTest::gtest
     )
     add_test(NAME math_header_test COMMAND math_header_test)
+
+    add_executable(lbfgs_standard_test test/lbfgs_standard_test.cpp)
+    target_link_libraries(lbfgs_standard_test PRIVATE xgc2_math::optimization)
+    add_test(NAME lbfgs_standard_test COMMAND lbfgs_standard_test)
 
     add_executable(pose3_eskf_jacobian_test
       test/pose3_eskf_jacobian_test.cpp

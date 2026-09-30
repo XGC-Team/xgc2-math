@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "name": "LBFGS-Lite",
+  "repository": "https://github.com/ZJU-FAST-Lab/LBFGS-Lite",
+  "version": "v2.3",
+  "commit": "a96c50e3fdf8b5278577522a2c5e75766c8670bb",
+  "license": "MIT",
+  "modifications": [],
+  "files": {
+    "lbfgs.hpp": {
+      "upstream_path": "include/lbfgs.hpp",
+      "url": "https://raw.githubusercontent.com/ZJU-FAST-Lab/LBFGS-Lite/a96c50e3fdf8b5278577522a2c5e75766c8670bb/include/lbfgs.hpp",
+      "sha256": "9fcc11472bed1f4cb468c366ee847148806efebaca3a56b052f8fddacdc5851c"
+    },
+    "LICENSE": {
+      "upstream_path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/ZJU-FAST-Lab/LBFGS-Lite/a96c50e3fdf8b5278577522a2c5e75766c8670bb/LICENSE",
+      "sha256": "0bfc7354ff64f671856c0a6bc6112d909eb4debb264f632bc18a59cfbccd2851"
+    }
+  }
+}

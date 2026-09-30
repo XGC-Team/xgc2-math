@@ -1,4 +1,4 @@
-variableScope:include/xgc2_math/optimization/lbfgs.hpp
+variableScope:include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp
 variableScope:include/xgc2_math/optimization/root_finder.hpp
 variableScope:include/xgc2_math/optimization/minco.hpp
 variableScope:include/xgc2_math/optimization/minco_trajectory.hpp

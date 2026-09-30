@@ -26,6 +26,9 @@ test -f /usr/include/xgc2_math/observer/differentiator.hpp
 test -f /usr/include/xgc2_math/estimation/pose3_inertial_eskf.hpp
 test ! -f /usr/include/xgc2_math/estimation/pose2_inertial_eskf.hpp
 test -f /usr/include/xgc2_math/optimization/minco.hpp
+test -f /usr/include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp
+test -f /usr/include/xgc2_math/third_party/lbfgs_lite/LICENSE
+test -f /usr/include/xgc2_math/third_party/lbfgs_lite/source.json
 test -f /usr/include/xgc2_math/trajectory/trajectory3.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/2d/circle_entry_2d.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/3d/circle_entry_3d.hpp

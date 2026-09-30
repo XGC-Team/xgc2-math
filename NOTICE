@@ -1,0 +1,21 @@
+XGC2 Math third-party notices
+
+LBFGS-Lite
+-----------
+include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp is an unmodified copy of
+ZJU-FAST-Lab/LBFGS-Lite v2.3, commit
+  a96c50e3fdf8b5278577522a2c5e75766c8670bb
+https://github.com/ZJU-FAST-Lab/LBFGS-Lite
+
+The upstream MIT license is included in
+include/xgc2_math/third_party/lbfgs_lite/LICENSE, together with a source.json
+record of exact upstream paths, download URLs, and SHA-256 hashes.
+The public optimization/lbfgs.hpp header only exposes a namespace alias;
+it does not change the upstream algorithm, defaults, callbacks or results.
+
+Other files
+-----------
+Existing per-file copyright and license notices in MINCO, root_finder,
+flatness, geo_utils, sdlp and other headers remain authoritative for those
+files. This notice does not assign one license or copyright holder to the
+whole repository.

@@ -1,0 +1,2 @@
+# Preserve exact upstream bytes, including original trailing whitespace.
+include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp -whitespace

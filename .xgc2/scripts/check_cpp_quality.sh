@@ -7,7 +7,7 @@ build_dir="${XGC2_MATH_QUALITY_BUILD_DIR:-${repo_root}/.ci/cpp-quality}"
 
 cd "${repo_root}"
 
-mapfile -t sources < <(find include test -type f \( -name '*.hpp' -o -name '*.h' -o -name '*.cpp' \) | sort)
+mapfile -t sources < <(find include test -path include/xgc2_math/third_party -prune -o -type f \( -name '*.hpp' -o -name '*.h' -o -name '*.cpp' \) -print | sort)
 tidy_sources=(
   test/math_header_test.cpp
 )
@@ -37,6 +37,7 @@ cppcheck \
   --std=c++17 \
   --inline-suppr \
   --suppressions-list=.xgc2/cppcheck_suppressions.txt \
+  -i include/xgc2_math/third_party \
   -I include \
   include test
 

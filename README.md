@@ -70,3 +70,16 @@ joint I/O; tire contact and collision integration belong to the physics engine.
 `geometry/kinematics.hpp` provides exact constant-acceleration translation and
 constant-body-velocity planar motion. Callers supply elapsed time and actual
 control inputs; the functions do not add a tracking controller or collision response.
+
+## LBFGS source
+
+`optimization/lbfgs.hpp` exposes the unmodified official LBFGS-Lite v2.3
+through `xgc2_math::optimization::lbfgs`. Its Eigen API, default parameters
+and Lewis–Overton line search are the upstream implementation; no legacy
+raw-pointer API or alternative solver is provided.
+
+The fixed upstream source, MIT license and SHA-256 record live together in
+`include/xgc2_math/third_party/lbfgs_lite/`. They ship with the optimization
+Debian package. See `NOTICE` for attribution scope. Upstream code is excluded
+from project formatting/static-style rules so its checked-in bytes remain
+verifiable; project callers are still compiled and tested.
