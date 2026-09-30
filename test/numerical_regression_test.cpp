@@ -1,10 +1,10 @@
-#include <xgc2_math/optimization/waypoint3.hpp>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
+#include <xgc2_math/optimization/waypoint3.hpp>
 
 #include "xgc2_math/algebra/angle.hpp"
 #include "xgc2_math/control/se3_nmpc_problem.hpp"

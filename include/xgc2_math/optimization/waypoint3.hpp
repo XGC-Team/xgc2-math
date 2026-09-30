@@ -1,8 +1,8 @@
 #pragma once
 
-#include "xgc2_math/trajectory/trajectory3.hpp"
 #include "xgc2_math/optimization/lbfgs.hpp"
 #include "xgc2_math/optimization/minco.hpp"
+#include "xgc2_math/trajectory/trajectory3.hpp"
 
 // Explicit planning layer. Trajectory evaluation and analytic entry curves
 // do not include this optimizer or its MINCO/LBFGS dependencies.

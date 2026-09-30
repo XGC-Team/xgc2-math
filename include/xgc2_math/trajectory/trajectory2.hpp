@@ -326,8 +326,8 @@ inline bool PiecewisePolynomialEvaluator2::evaluate(double t, PlanarReference2& 
     return TrajectoryValidator2::finite(output);
 }
 
-inline bool SepticWaypointInterpolator2::solve(const WaypointProblem2& problem, PiecewisePolynomialEvaluator2& evaluator,
-                                        uint32_t* flags) const {
+inline bool SepticWaypointInterpolator2::solve(const WaypointProblem2& problem,
+                                               PiecewisePolynomialEvaluator2& evaluator, uint32_t* flags) const {
     uint32_t local_flags = problem.flags;
     if (problem.constraints.size() < 2U) {
         local_flags |= kFlagInvalidInput;
