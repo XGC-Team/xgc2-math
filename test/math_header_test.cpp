@@ -1,3 +1,4 @@
+#include <xgc2_math/optimization/se2_target_trajectory.hpp>
 #include <array>
 #include <cmath>
 #include <cstddef>

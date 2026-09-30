@@ -1,3 +1,4 @@
+#include <xgc2_math/optimization/waypoint3.hpp>
 #include <array>
 #include <cmath>
 #include <cstddef>

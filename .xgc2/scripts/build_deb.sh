@@ -147,7 +147,7 @@ copy_path "${stage_dir}/usr/include/xgc2_math/estimation" "${pkg_dir}/${estimati
 copy_path "${stage_dir}/usr/include/xgc2_math/estimation.hpp" "${pkg_dir}/${estimation_pkg}"
 
 optimization_pkg="libxgc2-math-optimization-dev"
-write_control "${optimization_pkg}" "libxgc2-math-utils-dev (= ${version}), ${base_depends}" \
+write_control "${optimization_pkg}" "libxgc2-math-utils-dev (= ${version}), libxgc2-math-trajectory-dev (= ${version}), ${base_depends}" \
   "XGC2 math optimization headers"
 copy_path "${stage_dir}/usr/include/xgc2_math/optimization" "${pkg_dir}/${optimization_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/optimization.hpp" "${pkg_dir}/${optimization_pkg}"
@@ -155,7 +155,7 @@ copy_path "${stage_dir}/usr/include/xgc2_math/third_party/lbfgs_lite" "${pkg_dir
 
 trajectory_pkg="libxgc2-math-trajectory-dev"
 write_control "${trajectory_pkg}" \
-  "libxgc2-math-utils-dev (= ${version}), libxgc2-math-geometry-dev (= ${version}), libxgc2-math-optimization-dev (= ${version}), ${base_depends}" \
+  "libxgc2-math-utils-dev (= ${version}), libxgc2-math-geometry-dev (= ${version}), ${base_depends}" \
   "XGC2 math trajectory headers"
 copy_path "${stage_dir}/usr/include/xgc2_math/trajectory" "${pkg_dir}/${trajectory_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/trajectory.hpp" "${pkg_dir}/${trajectory_pkg}"
