@@ -385,7 +385,7 @@ inline bool SepticWaypointInterpolator2::solve(const WaypointProblem2& problem,
         segments.push_back(std::move(segment));
     }
     const bool ok = evaluator.setSegments(std::move(segments), 7U);
-    local_flags |= TrajectoryValidator2::validate(evaluator, problem.limits, problem.validation_sample_dt);
+    local_flags |= TrajectoryValidator2::validate(evaluator, problem.limits, 0.02);
     if (flags) {
         *flags |= local_flags;
     }
