@@ -30,17 +30,8 @@ struct TrajectoryLimits2 {
     double max_yaw_rate{0.0};
 };
 
-enum class WaypointConstraintType2 : uint8_t {
-    kPoint = 0,
-    kSphere = 1,
-    kBox = 2,
-    kGate = 3,
-};
-
 struct WaypointConstraint2 {
-    WaypointConstraintType2 type{WaypointConstraintType2::kPoint};
     Eigen::Vector2d position{Eigen::Vector2d::Zero()};
-    Eigen::Vector2d size{Eigen::Vector2d::Zero()};
     double yaw{0.0};
 };
 
@@ -86,16 +77,14 @@ struct WaypointProblem2 {
     Eigen::Vector2d end_acceleration{Eigen::Vector2d::Zero()};
     TrajectoryLimits2 limits{};
     double desired_speed{1.0};
-    double time_weight{1.0};
-    double dynamic_penalty_weight{1000.0};
-    int max_iterations{80};
-    double rel_cost_tol{1.0e-5};
     double min_segment_time{0.1};
     double validation_sample_dt{0.02};
     uint32_t flags{kFlagNone};
 };
 
-class MincoWaypointSolver2 final {
+// Fixed segment times (or distance/speed defaults), finite-difference interior
+// velocities and seventh-order boundary interpolation. No optimization.
+class SepticWaypointInterpolator2 final {
   public:
     bool solve(const WaypointProblem2& problem, PiecewisePolynomialEvaluator2& evaluator,
                uint32_t* flags = nullptr) const;
@@ -337,8 +326,8 @@ inline bool PiecewisePolynomialEvaluator2::evaluate(double t, PlanarReference2& 
     return TrajectoryValidator2::finite(output);
 }
 
-inline bool MincoWaypointSolver2::solve(const WaypointProblem2& problem, PiecewisePolynomialEvaluator2& evaluator,
-                                        uint32_t* flags) const {
+inline bool SepticWaypointInterpolator2::solve(const WaypointProblem2& problem,
+                                               PiecewisePolynomialEvaluator2& evaluator, uint32_t* flags) const {
     uint32_t local_flags = problem.flags;
     if (problem.constraints.size() < 2U) {
         local_flags |= kFlagInvalidInput;

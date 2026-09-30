@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_math VERSION 0.5.11 LANGUAGES CXX)
+project(xgc2_math VERSION 0.5.12 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -29,8 +29,8 @@ add_xgc2_math_component(geometry xgc2_math::algebra xgc2_math::utils)
 add_xgc2_math_component(filter xgc2_math::algebra xgc2_math::utils)
 add_xgc2_math_component(observer xgc2_math::algebra xgc2_math::utils xgc2_math::filter)
 add_xgc2_math_component(estimation xgc2_math::algebra xgc2_math::utils xgc2_math::geometry xgc2_math::filter xgc2_math::observer)
-add_xgc2_math_component(optimization xgc2_math::utils)
-add_xgc2_math_component(trajectory xgc2_math::utils xgc2_math::geometry xgc2_math::optimization)
+add_xgc2_math_component(trajectory xgc2_math::utils xgc2_math::geometry)
+add_xgc2_math_component(optimization xgc2_math::utils xgc2_math::trajectory)
 add_xgc2_math_component(control xgc2_math::utils)
 
 add_library(xgc2_math INTERFACE)

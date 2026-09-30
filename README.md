@@ -83,3 +83,16 @@ The fixed upstream source, MIT license and SHA-256 record live together in
 Debian package. See `NOTICE` for attribution scope. Upstream code is excluded
 from project formatting/static-style rules so its checked-in bytes remain
 verifiable; project callers are still compiled and tested.
+
+## Evaluation and planning headers
+
+`xgc2_math/trajectory.hpp` and `xgc2_math::trajectory` provide polynomial,
+sampled and analytic evaluation, including circle and torus-knot entry curves.
+They do not include or depend on LBFGS/MINCO. Fixed-time planar waypoints use
+`SepticWaypointInterpolator2`; it constructs seventh-order boundary segments
+and finite-difference interior velocities without optimization or region constraints.
+
+Optimization consumers explicitly include `xgc2_math/optimization/waypoint3.hpp`
+or `xgc2_math/optimization/se2_target_trajectory.hpp` and link
+`xgc2_math::optimization`. The official LBFGS-Lite and MINCO headers remain
+available for research reproduction. ROS interfaces remain in their owning products.

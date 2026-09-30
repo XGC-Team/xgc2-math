@@ -6,6 +6,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <xgc2_math/optimization/se2_target_trajectory.hpp>
 
 #include <xgc2_math/math.hpp>
 
