@@ -13,7 +13,10 @@
 
 #include <xgc2_math/control/dfbc_geometric_controller.hpp>
 
-#include "xgc_schemas_v1.h"
+#include <xgc-robotics-interfaces/robotics_interfaces_v1.h>
+#include <estimator_vrpn_px4_rotor_state/native/rigid_state_wire_v1.h>
+#include <multirotor_reference_trajectory/reference_wire_v1.h>
+#include <xgc2_math/native/ctl_dfbc_wire_v1.h>
 
 namespace ctl_dfbc {
 

@@ -21,7 +21,7 @@
 #include <vector>
 
 #include "dfbc_driver.hpp"
-#include "xgc_rt.h"
+#include <xgc_rt.h>
 
 namespace {
 
