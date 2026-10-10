@@ -172,6 +172,14 @@ if(XGC2_MATH_BUILD_TESTING)
     xgc2_math_property_tests(scene_geometry_test scene
       obstacle_validation polytope_hull surface_sampling ray_analytic ray_against_brute_force
       bvh_build_and_refit bvh_degenerate_scenes sample_index scene_rebuild scene_map_layout)
+    xgc2_math_property_tests(scene_lidar_test scene
+      raycast_occlusion penetrating_back_faces on_surface_and_in_range field_of_view noise_and_global_map
+      noise_stream beams depth_frustum heading_crop vehicle_bodies shared_scene_index penetrating_brute_force
+      packed_cloud fleet_threads config_validation scan_requests beam_patterns)
+    find_package(Threads REQUIRED)
+    target_link_libraries(scene_lidar_test PRIVATE Threads::Threads)
+    xgc2_math_property_tests(scene_allocation_test scene
+      counter_sees_allocations steady_state_scans steady_state_queries scan_scratch_is_bounded)
 
     add_executable(pose3_eskf_scenarios_test test/pose3_eskf_scenarios_test.cpp)
     target_link_libraries(pose3_eskf_scenarios_test PRIVATE xgc2_math::estimation)
