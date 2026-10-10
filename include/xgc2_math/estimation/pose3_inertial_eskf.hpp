@@ -330,6 +330,9 @@ class Pose3InertialEskf {
             return;
         }
 
+        // updatePose may pass &last_inertial_. Preserve the reading before
+        // clearing that member, otherwise the initial midpoint seed is lost.
+        const InertialSample initial_inertial = inertial != nullptr ? *inertial : InertialSample{};
         last_inertial_ = InertialSample{};
         has_last_inertial_ = false;
         resetCovariance();
@@ -342,8 +345,8 @@ class Pose3InertialEskf {
         state_.body_to_marker = config_.body_to_marker;
         state_.last_pose_stamp_sec = pose.stamp_sec;
         state_.last_inertial_stamp_sec = pose.stamp_sec;
-        if (inertial != nullptr && pose3_inertial_eskf_detail::validInertialSample(*inertial)) {
-            last_inertial_ = *inertial;
+        if (pose3_inertial_eskf_detail::validInertialSample(initial_inertial)) {
+            last_inertial_ = initial_inertial;
             last_inertial_.stamp_sec = pose.stamp_sec;
             state_.angular_velocity = last_inertial_.angular_velocity - state_.gyro_bias;
             state_.linear_acceleration =

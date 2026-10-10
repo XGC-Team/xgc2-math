@@ -431,7 +431,7 @@ template <int D> class Trajectory {
      * @brief 获取轨迹片段的数量
      * @return 片段数量
      */
-    inline int getPieceNum() const { return pieces.size(); }
+    inline int getPieceNum() const { return static_cast<int>(pieces.size()); }
 
     /**
      * @brief 获取所有片段的持续时间
@@ -441,7 +441,7 @@ template <int D> class Trajectory {
         int N = getPieceNum();
         Eigen::VectorXd durations(N);
         for (int i = 0; i < N; i++) {
-            durations(i) = pieces[i].getDuration();
+            durations(i) = pieces[static_cast<typename Pieces::size_type>(i)].getDuration();
         }
         return durations;
     }
@@ -482,14 +482,14 @@ template <int D> class Trajectory {
      * @param i 片段索引
      * @return 第i个片段的常量引用
      */
-    inline const Piece<D>& operator[](int i) const { return pieces[i]; }
+    inline const Piece<D>& operator[](int i) const { return pieces[static_cast<typename Pieces::size_type>(i)]; }
 
     /**
      * @brief 下标运算符，访问指定索引的轨迹片段
      * @param i 片段索引
      * @return 第i个片段的引用
      */
-    inline Piece<D>& operator[](int i) { return pieces[i]; }
+    inline Piece<D>& operator[](int i) { return pieces[static_cast<typename Pieces::size_type>(i)]; }
 
     /**
      * @brief 清空轨迹，删除所有片段
@@ -573,13 +573,14 @@ template <int D> class Trajectory {
         int idx;
         double dur;
         // 遍历片段，找到时间t所在的片段
-        for (idx = 0; idx < N && t > (dur = pieces[idx].getDuration()); idx++) {
+        for (idx = 0; idx < N && t > (dur = pieces[static_cast<typename Pieces::size_type>(idx)].getDuration());
+             idx++) {
             t -= dur; // 减去当前片段的持续时间
         }
         // 如果时间超出总时长，返回最后一个片段
         if (idx == N) {
             idx--;
-            t += pieces[idx].getDuration(); // 恢复到片段末尾的时间
+            t += pieces[static_cast<typename Pieces::size_type>(idx)].getDuration(); // 恢复到片段末尾的时间
         }
         return idx;
     }
@@ -593,7 +594,7 @@ template <int D> class Trajectory {
      */
     inline Eigen::Vector3d getPos(double t) const {
         int pieceIdx = locatePieceIdx(t); // t会被修改为局部时间
-        return pieces[pieceIdx].getPos(t);
+        return pieces[static_cast<typename Pieces::size_type>(pieceIdx)].getPos(t);
     }
 
     /**
@@ -603,7 +604,7 @@ template <int D> class Trajectory {
      */
     inline Eigen::Vector3d getVel(double t) const {
         int pieceIdx = locatePieceIdx(t);
-        return pieces[pieceIdx].getVel(t);
+        return pieces[static_cast<typename Pieces::size_type>(pieceIdx)].getVel(t);
     }
 
     /**

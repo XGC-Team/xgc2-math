@@ -17,10 +17,18 @@ struct TorusKnotEntryCurveParameters3 {
     TorusKnotCurveParameters3 torus{};
 };
 
+inline TorusKnotCurveParameters3 torusKnot3dParametersWithYaw(const TorusKnotCurveParameters3& torus, double yaw) {
+    TorusKnotCurveParameters3 params = torus;
+    params.yaw = yaw;
+    return params;
+}
+
 class TorusKnotEntryCurveEvaluator3 final : public TrajectoryEvaluator3 {
   public:
     explicit TorusKnotEntryCurveEvaluator3(const TorusKnotEntryCurveParameters3& params = {})
-        : params_(params), torus_(params_.torus) {
+        : params_(params), torus_(torusKnot3dParametersWithYaw(params_.torus, params_.origin_yaw)) {
+        // Match circle-entry's yaw-hold contract across the entire trajectory.
+        params_.torus.yaw = params_.origin_yaw;
         params_.entry_duration = std::max(0.0, params_.entry_duration);
         if (!analytic_detail::finiteScalar(params_.duration) || params_.duration <= 0.0) {
             params_.duration = torus_.duration() + params_.entry_duration;
