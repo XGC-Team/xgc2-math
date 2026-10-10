@@ -8,6 +8,8 @@ option(XGC2_MATH_BUILD_TESTING "Build xgc2_math tests" ON)
 option(XGC2_MATH_TEST_SIMULATIONS "Run MATLAB/Octave reference and C++ parity simulations" OFF)
 set(XGC2_MATH_SIMULATION_ENGINE "Octave" CACHE STRING "Simulation engine: Octave or MATLAB")
 set_property(CACHE XGC2_MATH_SIMULATION_ENGINE PROPERTY STRINGS Octave MATLAB)
+set(XGC2_MATH_SCENE_REFERENCE_SOURCE "" CACHE PATH
+  "Checkout of the scene repository (XGC-Team/xgc2-scene-generation, commit 2940a99) to build the world_lidar core it held and compare xgc2_math::scene against")
 
 find_package(Eigen3 REQUIRED)
 
@@ -184,6 +186,41 @@ if(XGC2_MATH_BUILD_TESTING)
       cluttered_cube_frame)
     xgc2_math_property_tests(scene_allocation_test scene
       counter_sees_allocations steady_state_scans steady_state_queries scan_scratch_is_bounded)
+
+    # Fleet scan benchmark, run by hand (see include/xgc2_math/scene/README.md).
+    add_executable(bench_scene_lidar test/bench_scene_lidar.cpp)
+    target_link_libraries(bench_scene_lidar PRIVATE xgc2_math::scene)
+
+    # Comparison with the world_lidar core that xgc2_math::scene replaces. The original sources are compiled from a
+    # checkout of the scene repository into the comparison test and into the original benchmark, so that both cores
+    # get the same compiler, flags and fixtures.
+    if(XGC2_MATH_SCENE_REFERENCE_SOURCE)
+      set(scene_reference_owner "${XGC2_MATH_SCENE_REFERENCE_SOURCE}/sensors/world_lidar")
+      set(scene_reference_sources)
+      foreach(source src/world_lidar.cpp src/scene_conversion.cpp src/convex_body_conversion.cpp)
+        if(NOT EXISTS "${scene_reference_owner}/${source}")
+          message(FATAL_ERROR
+            "XGC2_MATH_SCENE_REFERENCE_SOURCE must be a checkout of the scene repository: "
+            "${scene_reference_owner}/${source} does not exist")
+        endif()
+        list(APPEND scene_reference_sources "${scene_reference_owner}/${source}")
+      endforeach()
+      # The original sources are not held to the warning level of this repository.
+      set_source_files_properties(${scene_reference_sources} "${scene_reference_owner}/src/scan_pool.cpp"
+        "${scene_reference_owner}/test/bench_world_lidar.cpp" PROPERTIES COMPILE_FLAGS "-w")
+      add_executable(scene_reference_test test/scene_reference_test.cpp ${scene_reference_sources})
+      target_include_directories(scene_reference_test SYSTEM PRIVATE "${scene_reference_owner}/include")
+      target_link_libraries(scene_reference_test PRIVATE xgc2_math::scene)
+      foreach(case_name sampled_surfaces scene_queries scan_chain packed_clouds conversions)
+        add_test(NAME scene_reference_test.${case_name} COMMAND scene_reference_test ${case_name})
+        set_tests_properties(scene_reference_test.${case_name} PROPERTIES LABELS "scene;reference" TIMEOUT 600)
+      endforeach()
+      add_executable(bench_world_lidar_reference "${scene_reference_owner}/test/bench_world_lidar.cpp"
+        "${scene_reference_owner}/src/scan_pool.cpp" ${scene_reference_sources})
+      target_compile_features(bench_world_lidar_reference PRIVATE cxx_std_17)
+      target_include_directories(bench_world_lidar_reference SYSTEM PRIVATE "${scene_reference_owner}/include")
+      target_link_libraries(bench_world_lidar_reference PRIVATE Eigen3::Eigen Threads::Threads)
+    endif()
 
     add_executable(pose3_eskf_scenarios_test test/pose3_eskf_scenarios_test.cpp)
     target_link_libraries(pose3_eskf_scenarios_test PRIVATE xgc2_math::estimation)
