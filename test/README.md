@@ -18,8 +18,8 @@ ctest --test-dir build --output-on-failure
 For CMake 3.10, configure from a pre-created build directory using `cmake ..`
 and invoke `ctest --output-on-failure` from that directory. Building with
 `XGC2_MATH_BUILD_TESTING=OFF` continues to install just the library and its
-documentation. Tests, exporters and external runtime test fixtures are not
-installed as public library interfaces.
+documentation. Tests and exporters are not installed as public library
+interfaces.
 
 Enable the MATLAB/Octave reference and actual C++ parity checks using
 `-DXGC2_MATH_TEST_SIMULATIONS=ON`. The engine defaults to Octave; use
@@ -90,10 +90,6 @@ Each initialized IMU event produces an 11-column state row:
 The tool reports IMU count, accepted pose count and alignment rejection count
 on stderr. MATLAB generates fixtures and asserts their row counts, time
 alignment, finiteness, unit quaternions and accuracy against independent truth.
-
-The separate `test/dfbc/` fixture requires Runtime/robotics wire packages and
-remains an integration project. It is intentionally not pulled into the
-standalone Eigen-only unit-test build.
 
 ## CI and reproducibility
 

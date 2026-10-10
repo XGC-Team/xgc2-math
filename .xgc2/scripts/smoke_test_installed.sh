@@ -40,11 +40,6 @@ test -f /usr/include/xgc2_math/control/se3_nmpc_problem.hpp
 test -f /usr/include/xgc2_math/control/dfbc_geometric_controller.hpp
 test -f /usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake
 
-if grep -R -l 'xgc_attitude_rate_cmd_v1' /usr/include/xgc2_math; then
-  echo "DFBC Runtime test records must not be installed as public math headers." >&2
-  exit 1
-fi
-
 probe_dir="${XGC2_MATH_SMOKE_DIR:-$(mktemp -d -t xgc2-math-smoke-XXXXXX)}"
 mkdir -p "${probe_dir}"
 

@@ -31,8 +31,7 @@ The full `.xgc2/scripts/check_cpp_quality.sh` is a separate CI gate; strict
 compilation and formatting alone do not substitute for its static analyzers.
 The seven test translation units were checked with the script's cppcheck
 flags. A whole-tree scan with local cppcheck 2.13.0 still reports legacy
-diagnostics in unchanged `test/dfbc/reference_replay.cpp`,
-`include/xgc2_math/optimization/waypoint3.hpp` and
+diagnostics in unchanged `include/xgc2_math/optimization/waypoint3.hpp` and
 `test/pose3_eskf_jacobian_test.cpp`; this record does not claim a clean local
 whole-tree cppcheck run or a local clang-tidy run.
 
