@@ -65,7 +65,16 @@ required_files=(
   include/xgc2_math/trajectory/analytic/3d/torus_knot_3d.hpp
   include/xgc2_math/control/se3_nmpc_problem.hpp
   include/xgc2_math/control/dfbc_geometric_controller.hpp
+  include/xgc2_math/scene.hpp
+  include/xgc2_math/scene/README.md
+  include/xgc2_math/scene/lidar_scene.hpp
+  include/xgc2_math/scene/polytope.hpp
+  include/xgc2_math/scene/world_lidar.hpp
   test/math_header_test.cpp
+  test/scene_allocation_test.cpp
+  test/scene_contract_test.cpp
+  test/scene_geometry_test.cpp
+  test/scene_lidar_test.cpp
   .github/workflows/ci.yml
   .xgc2/product.yml
   .xgc2/scripts/build_deb.sh
@@ -95,6 +104,28 @@ fi
 
 if grep -R "xgc2_observer\\|xgc2_geometry" CMakeLists.txt cmake include test README.md .github .xgc2/product.yml 2>/dev/null; then
   echo "obsolete xgc2_observer/xgc2_geometry identifiers remain." >&2
+  exit 1
+fi
+
+# The scene component is header-only Eigen code on top of the geometry component: no ROS, PCL or OpenGL, and no header
+# of a component its package does not depend on. The GPU projection (GPL-2.0) belongs to the simulator that uses it.
+if grep -R -n -E '#include *[<"](ros/|pcl/|pcl_|GL/|GLFW/|glad/|glm/|opencv2/|[a-z0-9_]+_msgs/)' \
+  include/xgc2_math/scene include/xgc2_math/scene.hpp --include='*.hpp'; then
+  echo "scene component must not include ROS, PCL, OpenGL or message headers." >&2
+  exit 1
+fi
+if grep -R -n -i -E 'marsim|glfw|opengl' include/xgc2_math/scene include/xgc2_math/scene.hpp --include='*.hpp'; then
+  echo "scene component must not carry GPU renderer code." >&2
+  exit 1
+fi
+scene_foreign="$(
+  grep -R -h -o -E '#include *"xgc2_math/[^"]+"' include/xgc2_math/scene include/xgc2_math/scene.hpp --include='*.hpp' |
+    sed -E 's/.*"(xgc2_math\/[^"]+)"/\1/' |
+    grep -v -E '^xgc2_math/(scene|geometry|algebra|utils)(/|\.hpp)' || true
+)"
+if [[ -n "${scene_foreign}" ]]; then
+  echo "scene headers may include only the scene, geometry, algebra and utils components:" >&2
+  echo "${scene_foreign}" >&2
   exit 1
 fi
 

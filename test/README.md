@@ -42,12 +42,18 @@ license. Instructions and CSV conventions are in
 | `trajectory_property_test.*` (15 named tests) | Analytic derivatives/time domains/periodicity, boundary and entry continuity, sampled interpolation, flatness, validators, independent dense-KKT MINCO optima/energy and finite-difference total gradients |
 | `pose3_eskf_scenarios_test` | Queued IMU initialization, analytic motion at several rates, covariance/noise conventions, noisy multirate fusion/dropout, delay equivalence, observation-window/history/invalid-input boundaries and velocity conditioning |
 | `replay_cli.*` (15 named tests) | Valid/CRLF recording, exact state layout, malformed numbers/columns/event types, missing initialization, nonfinite quaternion passthrough, bad CLI parameters and identical/alias path rejection |
+| `scene_geometry_test.*` (10 named tests) | Obstacle validation; convex hulls against an enumeration of all vertex triples; surface samples against the shape residual; ray casts against analytic distances and brute force over single obstacles; hierarchy build, refit and degenerate scenes; the range query against a distance filter; scene revisions against full builds |
+| `scene_lidar_test.*` (17 named tests) | Raycast, penetrating and depth-frustum invariants (no return behind an occluder, points on surfaces and in range), field of view and heading crop, noise statistics and the seed sequence against `std::seed_seq`, vehicle bodies, shared scenes, the indexed penetrating scan against the plain loop it specifies, packed clouds, fleets on threads against a serial pass, beam patterns, configuration and request validation |
+| `scene_contract_test.*` (13 named tests) | Scene-document and Gazebo conversions, observation contract, sensor parameter domains, placement and motion of obstacles, closed convex document surfaces, obstacles as GJK collision sets, cluttered-environment construction |
+| `scene_allocation_test.*` (4 named tests) | No allocation by scans, queries and range noise in steady state, counted with a replaced global allocator |
+| `scene_reference_test.*` (5 named tests, opt-in) | Comparison with the world_lidar core of the scene repository, built from a checkout with `-DXGC2_MATH_SCENE_REFERENCE_SOURCE` (see `include/xgc2_math/scene/README.md`) |
 | `simulation.reference_only`, `simulation.cpp_parity` (optional) | MATLAB/Octave analytic simulations and actual native C++ comparison/replay |
 
-CTest lists 55 tests by default and 57 with simulations enabled. This is a
+CTest lists 99 tests by default (104 with the scene reference comparison) and
+101 with simulations enabled. This is a
 count of independently scheduled test entries, not a line/branch coverage
 percentage; several legacy executables contain multiple assertions or cases.
-The three new property executables accept a named case or `--list`; with no
+The property executables accept a named case or `--list`; with no
 argument they run all cases. Unknown case names return a nonzero exit status.
 
 Examples:
@@ -58,6 +64,15 @@ ctest --test-dir build -L geometry --output-on-failure
 ./build/filter_observer_property_test butterworth_response
 ./build/geometry_property_test --list
 ```
+
+## Scene scan benchmark
+
+`bench_scene_lidar` is not a test: it times scene builds, scene revisions and
+fleet scans of the scene component on one thread and prints the checksum of every
+cloud it produces. With a scene repository checkout configured as above,
+`bench_world_lidar_reference` runs the same benchmark on the original core,
+built with the same compiler and flags. Options and results are in
+`include/xgc2_math/scene/README.md`.
 
 ## Native ESKF CSV tool
 

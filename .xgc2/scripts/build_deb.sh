@@ -165,9 +165,15 @@ write_control "${control_pkg}" "libxgc2-math-utils-dev (= ${version}), ${base_de
 copy_path "${stage_dir}/usr/include/xgc2_math/control" "${pkg_dir}/${control_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/control.hpp" "${pkg_dir}/${control_pkg}"
 
+scene_pkg="libxgc2-math-scene-dev"
+write_control "${scene_pkg}" "libxgc2-math-geometry-dev (= ${version}), ${base_depends}" \
+  "XGC2 math scene geometry headers"
+copy_path "${stage_dir}/usr/include/xgc2_math/scene" "${pkg_dir}/${scene_pkg}"
+copy_path "${stage_dir}/usr/include/xgc2_math/scene.hpp" "${pkg_dir}/${scene_pkg}"
+
 meta_pkg="libxgc2-math-dev"
 write_control "${meta_pkg}" \
-  "libxgc2-math-algebra-dev (= ${version}), libxgc2-math-utils-dev (= ${version}), libxgc2-math-geometry-dev (= ${version}), libxgc2-math-filter-dev (= ${version}), libxgc2-math-observer-dev (= ${version}), libxgc2-math-estimation-dev (= ${version}), libxgc2-math-optimization-dev (= ${version}), libxgc2-math-trajectory-dev (= ${version}), libxgc2-math-control-dev (= ${version}), ${base_depends}" \
+  "libxgc2-math-algebra-dev (= ${version}), libxgc2-math-utils-dev (= ${version}), libxgc2-math-geometry-dev (= ${version}), libxgc2-math-filter-dev (= ${version}), libxgc2-math-observer-dev (= ${version}), libxgc2-math-estimation-dev (= ${version}), libxgc2-math-optimization-dev (= ${version}), libxgc2-math-trajectory-dev (= ${version}), libxgc2-math-control-dev (= ${version}), libxgc2-math-scene-dev (= ${version}), ${base_depends}" \
   "XGC2 math meta development package"
 copy_path "${stage_dir}/usr/include/xgc2_math/math.hpp" "${pkg_dir}/${meta_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/types.hpp" "${pkg_dir}/${meta_pkg}"
@@ -207,6 +213,10 @@ test ! -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analyti
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/se3_nmpc_problem.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/dfbc_geometric_controller.hpp"
+test -f "${pkg_dir}/${scene_pkg}/usr/include/xgc2_math/scene.hpp"
+test -f "${pkg_dir}/${scene_pkg}/usr/include/xgc2_math/scene/world_lidar.hpp"
+test -f "${pkg_dir}/${scene_pkg}/usr/include/xgc2_math/scene/lidar_scene.hpp"
+test -f "${pkg_dir}/${scene_pkg}/usr/include/xgc2_math/scene/README.md"
 test -f "${pkg_dir}/${meta_pkg}/usr/include/xgc2_math/math.hpp"
 test -f "${pkg_dir}/${meta_pkg}/usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake"
 
@@ -220,6 +230,7 @@ for package_name in \
   "${optimization_pkg}" \
   "${trajectory_pkg}" \
   "${control_pkg}" \
+  "${scene_pkg}" \
   "${meta_pkg}"; do
   build_package "${package_name}"
 done

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_math VERSION 0.5.12 LANGUAGES CXX)
+project(xgc2_math VERSION 0.6.0 LANGUAGES CXX)
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)

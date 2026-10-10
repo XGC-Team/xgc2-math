@@ -13,6 +13,18 @@ record of exact upstream paths, download URLs, and SHA-256 hashes.
 The public optimization/lbfgs.hpp header only exposes a namespace alias;
 it does not change the upstream algorithm, defaults, callbacks or results.
 
+Scene geometry
+--------------
+include/xgc2_math/scene/ continues the world_lidar geometry core and the
+cluttered_environment obstacle construction of
+https://github.com/XGC-Team/xgc2-scene-generation (commit
+2940a99abba225e718eed5fb892faac2f5ebaf5c), and the placement, motion and
+convex-surface checks of that repository's scene runtime. Those packages declare
+the MIT license in their package.xml files; the repository carries no LICENSE
+file. Convex hulls use the public-domain quickhull already in
+geometry/quickhull.hpp. The OpenGL spherical projection of that repository
+(derived from HKUST MARSIM, GPL-2.0) is not part of this component.
+
 Other files
 -----------
 Existing per-file copyright and license notices in MINCO, root_finder,

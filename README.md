@@ -19,4 +19,7 @@ target_link_libraries(my_target PRIVATE xgc2_math::math)
 ```
 
 Component headers and targets are also available, such as
-`<xgc2_math/control.hpp>` and `xgc2_math::control`.
+`<xgc2_math/control.hpp>` and `xgc2_math::control`. The scene component
+(`<xgc2_math/scene.hpp>`, `xgc2_math::scene`: scene modeling, ray casting and
+LiDAR / depth-camera models) is described in
+[include/xgc2_math/scene/README.md](include/xgc2_math/scene/README.md).
