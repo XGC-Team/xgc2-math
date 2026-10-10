@@ -563,8 +563,7 @@ void flatnessDynamics() {
                        3.0e-6 * (1.0 + state.angular_acceleration.norm()), named.first + " angular acceleration");
         }
     }
-    tr::FlatOutput3 freefall;
-    freefall.acceleration.z() = -gravity;
+    tr::FlatOutput3 freefall{Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero(), Eigen::Vector3d(0.0, 0.0, -gravity)};
     require((mapper.map(freefall).flags & tr::kFlagLowThrust) != 0U, "free fall must signal low thrust");
     freefall.jerk.x() = std::numeric_limits<double>::quiet_NaN();
     require((mapper.map(freefall).flags & tr::kFlagNonFinite) != 0U,
@@ -778,9 +777,20 @@ template <int S> void mincoGradients() {
         tail.col(2) = Eigen::Vector3d(-0.03, 0.06, -0.1);
     }
     Eigen::VectorXd times(count);
-    times << 0.9, 1.4, 1.1, 1.8;
+    times(0) = 0.9;
+    times(1) = 1.4;
+    times(2) = 1.1;
+    times(3) = 1.8;
     Eigen::Matrix3Xd points(3, count - 1);
-    points << 0.3, 1.1, 1.7, 0.8, -0.2, 0.3, 1.0, 1.6, 0.9;
+    points(0, 0) = 0.3;
+    points(0, 1) = 1.1;
+    points(0, 2) = 1.7;
+    points(1, 0) = 0.8;
+    points(1, 1) = -0.2;
+    points(1, 2) = 0.3;
+    points(2, 0) = 1.0;
+    points(2, 1) = 1.6;
+    points(2, 2) = 0.9;
     MincoSolver<S> solver;
     solver.setConditions(head, tail, count);
     solver.setParameters(points, times);

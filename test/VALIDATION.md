@@ -6,8 +6,8 @@ Validated on 2026-10-10 against changes based on upstream
 ## Environment and results
 
 Local environment: Linux x86-64, GCC 13.3.0, Eigen 3.4.0, CMake/CTest 3.28.3,
-GNU Octave 8.4.0, clang-format 18.1.3 and cppcheck 2.13.0. Plotting used
-gnuplot and FreeFont.
+GNU Octave 8.4.0, clang-format 18.1.3 and cppcheck 2.13.0. The CI-compatible
+Focal cppcheck 1.90 was also run locally. Plotting used gnuplot and FreeFont.
 
 | Check | Result |
 |---|---|
@@ -17,6 +17,7 @@ gnuplot and FreeFont.
 | Native test registration with simulations disabled | 55 tests |
 | Formatting of all 100 non-vendored C++ header/source files | Passed |
 | cppcheck on the seven new/changed test translation units | Passed, no diagnostics |
+| Whole-tree cppcheck 1.90 with the CI script's exact flags | Passed, 16/16 translation units, no diagnostics |
 | `git diff --check` | Passed |
 | `.xgc2/scripts/check_package_compliance.sh` | Passed |
 | Staged CMake installation and installed consumer probe | Passed |
@@ -34,6 +35,15 @@ diagnostics in unchanged `test/dfbc/reference_replay.cpp`,
 `include/xgc2_math/optimization/waypoint3.hpp` and
 `test/pose3_eskf_jacobian_test.cpp`; this record does not claim a clean local
 whole-tree cppcheck run or a local clang-tidy run.
+
+The first remote run passed all 55 native tests with GCC 9.4.0, then exposed
+ten diagnostics specific to the CI image's cppcheck 1.90. These were
+reproduced locally against that exact failed source snapshot. The follow-up
+changes make calculation precedence explicit, use ordered accumulation for
+partitioned motion, initialize Eigen fixture data without comma expressions,
+and construct independent measurement objects for each negative test. The
+same whole-tree cppcheck 1.90 command then passed without diagnostics. All
+original inputs, seeds, tolerances and assertions were retained.
 
 These counts are CTest entries, not line or branch coverage percentages.
 The checks use explicit failures and remain active with `NDEBUG` defined.
