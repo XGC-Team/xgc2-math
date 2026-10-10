@@ -151,7 +151,6 @@ write_control "${optimization_pkg}" "libxgc2-math-utils-dev (= ${version}), libx
   "XGC2 math optimization headers"
 copy_path "${stage_dir}/usr/include/xgc2_math/optimization" "${pkg_dir}/${optimization_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/optimization.hpp" "${pkg_dir}/${optimization_pkg}"
-copy_path "${stage_dir}/usr/include/xgc2_math/third_party/lbfgs_lite" "${pkg_dir}/${optimization_pkg}"
 
 trajectory_pkg="libxgc2-math-trajectory-dev"
 write_control "${trajectory_pkg}" \
@@ -165,7 +164,6 @@ write_control "${control_pkg}" "libxgc2-math-utils-dev (= ${version}), ${base_de
   "XGC2 math control headers"
 copy_path "${stage_dir}/usr/include/xgc2_math/control" "${pkg_dir}/${control_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/control.hpp" "${pkg_dir}/${control_pkg}"
-copy_path "${stage_dir}/usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h" "${pkg_dir}/${control_pkg}"
 
 meta_pkg="libxgc2-math-dev"
 write_control "${meta_pkg}" \
@@ -187,9 +185,9 @@ test -f "${pkg_dir}/${observer_pkg}/usr/include/xgc2_math/observer/differentiato
 test -f "${pkg_dir}/${estimation_pkg}/usr/include/xgc2_math/estimation/pose3_inertial_eskf.hpp"
 test ! -f "${pkg_dir}/${estimation_pkg}/usr/include/xgc2_math/estimation/pose2_inertial_eskf.hpp"
 test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/optimization/minco.hpp"
-test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp"
-test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/third_party/lbfgs_lite/LICENSE"
-test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/third_party/lbfgs_lite/source.json"
+test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/optimization/lbfgs_lite/lbfgs.hpp"
+test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/optimization/lbfgs_lite/LICENSE"
+test -f "${pkg_dir}/${optimization_pkg}/usr/include/xgc2_math/optimization/lbfgs_lite/source.json"
 test -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/trajectory3.hpp"
 test -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analytic/2d/circle_2d.hpp"
 test -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analytic/2d/circle_entry_2d.hpp"
@@ -208,7 +206,7 @@ test ! -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analyti
 test ! -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analytic/koopman.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/se3_nmpc_problem.hpp"
-test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h"
+test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/dfbc.h"
 test -f "${pkg_dir}/${meta_pkg}/usr/include/xgc2_math/math.hpp"
 test -f "${pkg_dir}/${meta_pkg}/usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake"
 

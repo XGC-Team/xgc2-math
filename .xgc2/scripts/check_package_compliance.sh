@@ -54,9 +54,9 @@ required_files=(
   include/xgc2_math/observer/differentiator.hpp
   include/xgc2_math/estimation/pose3_inertial_eskf.hpp
   include/xgc2_math/optimization/minco.hpp
-  include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp
-  include/xgc2_math/third_party/lbfgs_lite/LICENSE
-  include/xgc2_math/third_party/lbfgs_lite/source.json
+  include/xgc2_math/optimization/lbfgs_lite/lbfgs.hpp
+  include/xgc2_math/optimization/lbfgs_lite/LICENSE
+  include/xgc2_math/optimization/lbfgs_lite/source.json
   include/xgc2_math/trajectory/trajectory3.hpp
   include/xgc2_math/trajectory/analytic/2d/circle_entry_2d.hpp
   include/xgc2_math/trajectory/analytic/3d/circle_entry_3d.hpp
@@ -64,6 +64,10 @@ required_files=(
   include/xgc2_math/trajectory/analytic/3d/helix_yz_3d.hpp
   include/xgc2_math/trajectory/analytic/3d/torus_knot_3d.hpp
   include/xgc2_math/control/se3_nmpc_problem.hpp
+  include/xgc2_math/control/dfbc.h
+  plugins/dfbc/ctl_dfbc.cpp
+  plugins/dfbc/dfbc_driver.hpp
+  test/dfbc/reference_replay.cpp
   test/math_header_test.cpp
   .github/workflows/ci.yml
   .xgc2/product.yml

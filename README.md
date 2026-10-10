@@ -45,6 +45,7 @@ Public headers are grouped by domain:
 /usr/include/xgc2_math/optimization/
 /usr/include/xgc2_math/trajectory/
 /usr/include/xgc2_math/control.hpp
+/usr/include/xgc2_math/control/
 /usr/include/xgc2_math/types.hpp
 /usr/include/xgc2_math/math.hpp
 ```
@@ -71,6 +72,29 @@ joint I/O; tire contact and collision integration belong to the physics engine.
 constant-body-velocity planar motion. Callers supply elapsed time and actual
 control inputs; the functions do not add a tracking controller or collision response.
 
+`control/dfbc_geometric_controller.hpp` provides the ROS-independent DFBC
+geometric controller. `control/dfbc.h` defines its C-compatible output
+record for the `xgc.attitude_rate_cmd/1` schema (104 bytes). Both ship in
+`libxgc2-math-control-dev`.
+
+## DFBC runtime plugin
+
+`plugins/dfbc/` contains the optional `ctl-dfbc` Runtime SDK facade and record
+conversion driver. `test/dfbc/reference_replay.cpp` provides its replay oracle.
+The facade depends on `XgcRuntimeSDK`, `XgcRoboticsInterfaces`,
+`RigidStateNativeWire` and `ReferenceTrajectoryNative` CMake packages. These
+dependencies belong to the plugin; the public math headers do not require them.
+
+Configure with `-DXGC2_MATH_BUILD_DFBC_PLUGIN=ON` and the dependency install
+prefixes in `CMAKE_PREFIX_PATH` to build and install `libctl_dfbc.so` and
+`ctl_dfbc_reference`. The default header-only Debian packages do not contain
+these artifacts. Runtime's `ctl_dfbc` replay test accepts their installed
+paths through `DFBC_NATIVE_LIBRARY` and `DFBC_REFERENCE_BIN`.
+
+The PX4 controller's DFBC tracking strategy uses `DfbcGeometricController`
+directly and maps its thrust output to vehicle commands. The standalone
+`ctl-dfbc` plugin exposes geometric outputs before vehicle-specific mapping.
+
 ## LBFGS source
 
 `optimization/lbfgs.hpp` exposes the unmodified official LBFGS-Lite v2.3
@@ -79,7 +103,7 @@ and Lewis–Overton line search are the upstream implementation; no legacy
 raw-pointer API or alternative solver is provided.
 
 The fixed upstream source, MIT license and SHA-256 record live together in
-`include/xgc2_math/third_party/lbfgs_lite/`. They ship with the optimization
+`include/xgc2_math/optimization/lbfgs_lite/`. They ship with the optimization
 Debian package. See `NOTICE` for attribution scope. Upstream code is excluded
 from project formatting/static-style rules so its checked-in bytes remain
 verifiable; project callers are still compiled and tested.

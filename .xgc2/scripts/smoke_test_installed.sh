@@ -26,9 +26,9 @@ test -f /usr/include/xgc2_math/observer/differentiator.hpp
 test -f /usr/include/xgc2_math/estimation/pose3_inertial_eskf.hpp
 test ! -f /usr/include/xgc2_math/estimation/pose2_inertial_eskf.hpp
 test -f /usr/include/xgc2_math/optimization/minco.hpp
-test -f /usr/include/xgc2_math/third_party/lbfgs_lite/lbfgs.hpp
-test -f /usr/include/xgc2_math/third_party/lbfgs_lite/LICENSE
-test -f /usr/include/xgc2_math/third_party/lbfgs_lite/source.json
+test -f /usr/include/xgc2_math/optimization/lbfgs_lite/lbfgs.hpp
+test -f /usr/include/xgc2_math/optimization/lbfgs_lite/LICENSE
+test -f /usr/include/xgc2_math/optimization/lbfgs_lite/source.json
 test -f /usr/include/xgc2_math/trajectory/trajectory3.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/2d/circle_entry_2d.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/3d/circle_entry_3d.hpp
@@ -37,8 +37,8 @@ test -f /usr/include/xgc2_math/trajectory/analytic/3d/helix_yz_3d.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/3d/torus_knot_3d.hpp
 test -f /usr/include/xgc2_math/control/se2_nmpc_problem.hpp
 test -f /usr/include/xgc2_math/control/se3_nmpc_problem.hpp
-test -f /usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h
-dpkg-query -L libxgc2-math-control-dev | grep -Fx /usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h
+test -f /usr/include/xgc2_math/control/dfbc.h
+dpkg-query -L libxgc2-math-control-dev | grep -Fx /usr/include/xgc2_math/control/dfbc.h
 test -f /usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake
 
 probe_dir="${XGC2_MATH_SMOKE_DIR:-$(mktemp -d -t xgc2-math-smoke-XXXXXX)}"
@@ -62,7 +62,7 @@ CMAKE
 
 cat > "${probe_dir}/link_probe.cpp" <<'CPP'
 #include <xgc2_math/math.hpp>
-#include <xgc2_math/native/ctl_dfbc_wire_v1.h>
+#include <xgc2_math/control/dfbc.h>
 
 int main()
 {
@@ -128,7 +128,7 @@ int main()
 CPP
 
 cat > "${probe_dir}/wire_probe.c" <<'C'
-#include <xgc2_math/native/ctl_dfbc_wire_v1.h>
+#include <xgc2_math/control/dfbc.h>
 
 int main(void)
 {
