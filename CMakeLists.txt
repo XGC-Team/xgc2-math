@@ -178,6 +178,10 @@ if(XGC2_MATH_BUILD_TESTING)
       packed_cloud fleet_threads config_validation scan_requests beam_patterns)
     find_package(Threads REQUIRED)
     target_link_libraries(scene_lidar_test PRIVATE Threads::Threads)
+    xgc2_math_property_tests(scene_contract_test scene
+      document_conversion gazebo_conversion same_scans_from_both_sources observation_contract sensor_metadata
+      placement motion convex_document occupied_sets cluttered_polytopes cluttered_bodies cluttered_templates
+      cluttered_cube_frame)
     xgc2_math_property_tests(scene_allocation_test scene
       counter_sees_allocations steady_state_scans steady_state_queries scan_scratch_is_bounded)
 

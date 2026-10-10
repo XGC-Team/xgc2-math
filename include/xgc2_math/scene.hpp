@@ -1,9 +1,16 @@
 #pragma once
 
 #include "xgc2_math/scene/beam_pattern.hpp"
+#include "xgc2_math/scene/cluttered_environment.hpp"
+#include "xgc2_math/scene/convex_mesh.hpp"
 #include "xgc2_math/scene/lidar_scene.hpp"
+#include "xgc2_math/scene/observation_contract.hpp"
 #include "xgc2_math/scene/obstacle.hpp"
+#include "xgc2_math/scene/occupied_set.hpp"
+#include "xgc2_math/scene/placement.hpp"
 #include "xgc2_math/scene/polytope.hpp"
+#include "xgc2_math/scene/scene_conversion.hpp"
+#include "xgc2_math/scene/sensor_metadata.hpp"
 #include "xgc2_math/scene/sensor_model.hpp"
 #include "xgc2_math/scene/shape_table.hpp"
 #include "xgc2_math/scene/world_lidar.hpp"
