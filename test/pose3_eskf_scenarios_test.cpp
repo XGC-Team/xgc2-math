@@ -35,12 +35,22 @@ xgc2_math::InertialSample imu(double stamp, const Vector& omega = Vector::Zero()
     return sample;
 }
 
-xgc2_math::PoseMeasurement pose(double stamp, const Pose& value = Pose{}) {
+xgc2_math::PoseMeasurement pose(double stamp, const Pose& value = Pose{}, bool time_jump = false) {
     xgc2_math::PoseMeasurement sample;
     sample.received = true;
     sample.valid = true;
+    sample.time_jump = time_jump;
     sample.stamp_sec = stamp;
     sample.pose = value;
+    return sample;
+}
+
+xgc2_math::VelocityMeasurement velocity(double stamp, const Vector& value) {
+    xgc2_math::VelocityMeasurement sample;
+    sample.received = true;
+    sample.valid = true;
+    sample.stamp_sec = stamp;
+    sample.velocity = value;
     return sample;
 }
 
@@ -397,8 +407,7 @@ void testInvalidAndTimeBoundaries() {
     require(!jump.accepted && jump.innovation_rejected, "raw position jump accepted");
     requireStateEqual(filter.state(), before, 0.0, "raw jump");
     require((filter.covariance() - covariance).norm() == 0.0, "raw jump changed covariance");
-    auto time_jump = pose(1.02);
-    time_jump.time_jump = true;
+    const auto time_jump = pose(1.02, Pose{}, true);
     require(filter.updatePose(time_jump).time_alignment_rejected, "pose time jump accepted");
     requireStateEqual(filter.state(), before, 0.0, "pose time jump");
     auto reset_imu = imu(2.0);
@@ -464,11 +473,7 @@ void testVelocityUpdate() {
     filter.setConfig(config);
     const auto seed = imu(1.0);
     filter.initializeFromPose(pose(1.0), &seed);
-    xgc2_math::VelocityMeasurement measurement;
-    measurement.received = true;
-    measurement.valid = true;
-    measurement.stamp_sec = 1.0;
-    measurement.velocity = Vector(1.0, -0.2, 0.3);
+    const auto measurement = velocity(1.0, Vector(1.0, -0.2, 0.3));
     require(filter.updateVelocity(measurement).accepted, "current-time velocity measurement was rejected");
     const double prior = config.initial_velocity_variance;
     const double noise = config.velocity_noise_std * config.velocity_noise_std;
@@ -482,14 +487,13 @@ void testVelocityUpdate() {
     requireCovariance(filter);
     const auto before = filter.state();
     const auto covariance = filter.covariance();
-    measurement.velocity.x() = std::numeric_limits<double>::quiet_NaN();
-    require(filter.updateVelocity(measurement).reject_reason == xgc2_math::PoseFusionRejectReason::kInvalidInput,
+    const auto invalid_velocity = velocity(1.0, Vector(std::numeric_limits<double>::quiet_NaN(), -0.2, 0.3));
+    require(filter.updateVelocity(invalid_velocity).reject_reason == xgc2_math::PoseFusionRejectReason::kInvalidInput,
             "NaN velocity was not rejected");
-    measurement.velocity = Vector(100.0, 0.0, 0.0);
-    require(filter.updateVelocity(measurement).innovation_rejected, "velocity outlier gate failed");
-    measurement.velocity = Vector::Zero();
-    measurement.stamp_sec = 0.0;
-    require(filter.updateVelocity(measurement).time_alignment_rejected, "late velocity measurement was accepted");
+    const auto outlier_velocity = velocity(1.0, Vector(100.0, 0.0, 0.0));
+    require(filter.updateVelocity(outlier_velocity).innovation_rejected, "velocity outlier gate failed");
+    const auto late_velocity = velocity(0.0, Vector::Zero());
+    require(filter.updateVelocity(late_velocity).time_alignment_rejected, "late velocity measurement was accepted");
     requireStateEqual(filter.state(), before, 0.0, "rejected velocity measurement");
     require((filter.covariance() - covariance).norm() == 0.0, "rejected velocity changed covariance");
     std::cout << "velocity_posterior_and_reject_invariance=PASS\n";

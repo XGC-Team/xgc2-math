@@ -200,15 +200,17 @@ void bodyVelocityQuadrature() {
 
 void accelerationFlow() {
     Cases cases;
+    constexpr std::array<double, 4> fractions{{0.0, 0.1, 0.3, 0.6}};
     for (int i = 0; i < 96; ++i) {
         const xgc2_math::TranslationalState state{cases.vector3(), 2.0 * cases.vector3()};
         const Eigen::Vector3d acceleration = 2.0 * cases.vector3();
         const double dt = 0.01 + 2.0 * std::abs(cases.scalar());
         const auto full = xgc2_math::stepWorldAcceleration(state, acceleration, dt);
-        auto split = state;
-        for (double fraction : {0.0, 0.1, 0.3, 0.6}) {
-            split = xgc2_math::stepWorldAcceleration(split, acceleration, dt * fraction);
-        }
+        const auto split =
+            std::accumulate(fractions.begin(), fractions.end(), state,
+                            [&acceleration, dt](const xgc2_math::TranslationalState& current, double fraction) {
+                                return xgc2_math::stepWorldAcceleration(current, acceleration, dt * fraction);
+                            });
         matrixNear(split.position, full.position, 2.0e-14, sample(i) + " acceleration subdivision position");
         matrixNear(split.velocity, full.velocity, 2.0e-14, sample(i) + " acceleration subdivision velocity");
         const auto reversed = xgc2_math::stepWorldAcceleration({full.position, -full.velocity}, acceleration, dt);
@@ -243,7 +245,8 @@ void supportMaps() {
         const auto support = box->support(direction);
         double vertex_max = -1.0e100;
         for (int corner = 0; corner < 8; ++corner) {
-            const Eigen::Vector3d signs(corner & 1 ? 1.0 : -1.0, corner & 2 ? 1.0 : -1.0, corner & 4 ? 1.0 : -1.0);
+            const Eigen::Vector3d signs((corner & 1) != 0 ? 1.0 : -1.0, (corner & 2) != 0 ? 1.0 : -1.0,
+                                        (corner & 4) != 0 ? 1.0 : -1.0);
             const Eigen::Vector3d vertex = center + rotation * (0.5 * size.cwiseProduct(signs));
             vertex_max = std::max(vertex_max, direction.dot(vertex));
         }
