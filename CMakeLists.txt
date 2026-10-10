@@ -35,6 +35,7 @@ add_xgc2_math_component(estimation xgc2_math::algebra xgc2_math::utils xgc2_math
 add_xgc2_math_component(trajectory xgc2_math::utils xgc2_math::geometry)
 add_xgc2_math_component(optimization xgc2_math::utils xgc2_math::trajectory)
 add_xgc2_math_component(control xgc2_math::utils)
+add_xgc2_math_component(scene xgc2_math::geometry)
 
 add_library(xgc2_math INTERFACE)
 add_library(xgc2_math::math ALIAS xgc2_math)
@@ -55,6 +56,7 @@ target_link_libraries(xgc2_math
     xgc2_math::geometry
     xgc2_math::observer
     xgc2_math::optimization
+    xgc2_math::scene
     xgc2_math::trajectory
 )
 install(TARGETS xgc2_math EXPORT xgc2_mathTargets)
@@ -166,6 +168,10 @@ if(XGC2_MATH_BUILD_TESTING)
       line_boundaries entry_continuity torus_entry_yaw septic_waypoint_continuity
       sampled_interpolation flatness_dynamics trajectory_validation minco_s2_oracle
       minco_s3_oracle minco_s2_gradients minco_s3_gradients)
+
+    xgc2_math_property_tests(scene_geometry_test scene
+      obstacle_validation polytope_hull surface_sampling ray_analytic ray_against_brute_force
+      bvh_build_and_refit bvh_degenerate_scenes sample_index scene_rebuild scene_map_layout)
 
     add_executable(pose3_eskf_scenarios_test test/pose3_eskf_scenarios_test.cpp)
     target_link_libraries(pose3_eskf_scenarios_test PRIVATE xgc2_math::estimation)
