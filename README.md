@@ -73,27 +73,32 @@ constant-body-velocity planar motion. Callers supply elapsed time and actual
 control inputs; the functions do not add a tracking controller or collision response.
 
 `control/dfbc_geometric_controller.hpp` provides the ROS-independent DFBC
-geometric controller. `control/dfbc.h` defines its C-compatible output
-record for the `xgc.attitude_rate_cmd/1` schema (104 bytes). Both ship in
-`libxgc2-math-control-dev`.
+geometric controller, including its mathematical input and output types. It
+ships in `libxgc2-math-control-dev`. The PX4 controller's DFBC tracking strategy
+uses `DfbcGeometricController` directly and maps its thrust output to vehicle
+commands.
 
-## DFBC runtime plugin
+## DFBC runtime test fixture
 
-`plugins/dfbc/` contains the optional `ctl-dfbc` Runtime SDK facade and record
-conversion driver. `test/dfbc/reference_replay.cpp` provides its replay oracle.
-The facade depends on `XgcRuntimeSDK`, `XgcRoboticsInterfaces`,
-`RigidStateNativeWire` and `ReferenceTrajectoryNative` CMake packages. These
-dependencies belong to the plugin; the public math headers do not require them.
+`test/dfbc/` is a standalone integration test fixture for Runtime's `ctl_dfbc`
+replay test. It contains a host facade, record conversion driver, private
+104-byte `xgc.attitude_rate_cmd/1` record and replay oracle. These files are
+excluded from the math library's build, install and Debian packages.
 
-Configure with `-DXGC2_MATH_BUILD_DFBC_PLUGIN=ON` and the dependency install
-prefixes in `CMAKE_PREFIX_PATH` to build and install `libctl_dfbc.so` and
-`ctl_dfbc_reference`. The default header-only Debian packages do not contain
-these artifacts. Runtime's `ctl_dfbc` replay test accepts their installed
-paths through `DFBC_NATIVE_LIBRARY` and `DFBC_REFERENCE_BIN`.
+The fixture consumes installed `xgc2_math`, `XgcRuntimeSDK`,
+`XgcRoboticsInterfaces`, `RigidStateNativeWire` and `ReferenceTrajectoryNative`
+CMake packages. Build it separately with their prefixes in `CMAKE_PREFIX_PATH`:
 
-The PX4 controller's DFBC tracking strategy uses `DfbcGeometricController`
-directly and maps its thrust output to vehicle commands. The standalone
-`ctl-dfbc` plugin exposes geometric outputs before vehicle-specific mapping.
+```bash
+cmake -S test/dfbc -B build/dfbc-test -DCMAKE_INSTALL_PREFIX=/path/to/test-fixture
+cmake --build build/dfbc-test --target install
+```
+
+The test installs `libctl_dfbc.so` and `ctl_dfbc_reference` in that separate
+prefix. Runtime's replay test accepts their absolute paths through
+`DFBC_NATIVE_LIBRARY` and `DFBC_REFERENCE_BIN`. The fixture exposes geometric
+outputs before vehicle-specific mapping; its host protocol is private test
+support, separate from the public mathematical API.
 
 ## LBFGS source
 

@@ -37,16 +37,20 @@ test -f /usr/include/xgc2_math/trajectory/analytic/3d/helix_yz_3d.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/3d/torus_knot_3d.hpp
 test -f /usr/include/xgc2_math/control/se2_nmpc_problem.hpp
 test -f /usr/include/xgc2_math/control/se3_nmpc_problem.hpp
-test -f /usr/include/xgc2_math/control/dfbc.h
-dpkg-query -L libxgc2-math-control-dev | grep -Fx /usr/include/xgc2_math/control/dfbc.h
+test -f /usr/include/xgc2_math/control/dfbc_geometric_controller.hpp
 test -f /usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake
+
+if grep -R -l 'xgc_attitude_rate_cmd_v1' /usr/include/xgc2_math; then
+  echo "DFBC Runtime test records must not be installed as public math headers." >&2
+  exit 1
+fi
 
 probe_dir="${XGC2_MATH_SMOKE_DIR:-$(mktemp -d -t xgc2-math-smoke-XXXXXX)}"
 mkdir -p "${probe_dir}"
 
 cat > "${probe_dir}/CMakeLists.txt" <<'CMAKE'
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_math_probe LANGUAGES C CXX)
+project(xgc2_math_probe LANGUAGES CXX)
 
 find_package(xgc2_math REQUIRED CONFIG)
 xgc2_math_require()
@@ -54,15 +58,11 @@ xgc2_math_require()
 add_executable(link_probe link_probe.cpp)
 target_compile_features(link_probe PRIVATE cxx_std_17)
 target_link_libraries(link_probe PRIVATE xgc2_math::math)
-
-add_executable(wire_probe wire_probe.c)
-target_compile_features(wire_probe PRIVATE c_std_11)
-target_link_libraries(wire_probe PRIVATE xgc2_math::control)
 CMAKE
 
 cat > "${probe_dir}/link_probe.cpp" <<'CPP'
 #include <xgc2_math/math.hpp>
-#include <xgc2_math/control/dfbc.h>
+#include <xgc2_math/control/dfbc_geometric_controller.hpp>
 
 int main()
 {
@@ -82,6 +82,7 @@ int main()
   xgc2_math::trajectory::FlatOutput3 flat;
   xgc2_math::control::Se3State se3_state;
   xgc2_math::control::Se2Control se2_control;
+  xgc2_math::control::DfbcGeometricController dfbc;
 
   const auto dt0 = dt_guard.update(1.0);
   const auto dt1 = dt_guard.update(1.01);
@@ -107,6 +108,7 @@ int main()
   const auto se3_vec = xgc2_math::control::packState(se3_state);
   se2_control.yaw_rate = 0.2;
   const auto se2_u = xgc2_math::control::packControl(se2_control);
+  const auto dfbc_output = dfbc.compute(xgc2_math::control::DfbcGeometricInput{});
 
   return !dt0.accepted && dt1.accepted &&
          stale &&
@@ -122,25 +124,16 @@ int main()
          curve_ok &&
          se3_vec.size() == 13 &&
          se2_u(1) > 0.1 &&
+         dfbc_output.success &&
+         std::abs(dfbc_output.specific_thrust - dfbc.config().gravity) < 1e-9 &&
          planar_pose.position.x() > 0.9 &&
          sphere.support(Eigen::Vector3d::UnitX()).support_point.x() > 0.9 ? 0 : 1;
 }
 CPP
 
-cat > "${probe_dir}/wire_probe.c" <<'C'
-#include <xgc2_math/control/dfbc.h>
-
-int main(void)
-{
-  xgc_attitude_rate_cmd_v1 cmd = {0};
-  return sizeof(cmd) == 104 ? 0 : 1;
-}
-C
-
 mkdir -p "${probe_dir}/build"
 (cd "${probe_dir}/build" && cmake "${probe_dir}")
 cmake --build "${probe_dir}/build" -- -j2
 "${probe_dir}/build/link_probe"
-"${probe_dir}/build/wire_probe"
 
 echo "libxgc2-math-dev installed smoke test passed."

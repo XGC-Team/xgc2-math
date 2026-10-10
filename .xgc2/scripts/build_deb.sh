@@ -206,7 +206,7 @@ test ! -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analyti
 test ! -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analytic/koopman.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/se3_nmpc_problem.hpp"
-test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/dfbc.h"
+test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/dfbc_geometric_controller.hpp"
 test -f "${pkg_dir}/${meta_pkg}/usr/include/xgc2_math/math.hpp"
 test -f "${pkg_dir}/${meta_pkg}/usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake"
 

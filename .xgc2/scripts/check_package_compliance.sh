@@ -64,9 +64,11 @@ required_files=(
   include/xgc2_math/trajectory/analytic/3d/helix_yz_3d.hpp
   include/xgc2_math/trajectory/analytic/3d/torus_knot_3d.hpp
   include/xgc2_math/control/se3_nmpc_problem.hpp
-  include/xgc2_math/control/dfbc.h
-  plugins/dfbc/ctl_dfbc.cpp
-  plugins/dfbc/dfbc_driver.hpp
+  include/xgc2_math/control/dfbc_geometric_controller.hpp
+  test/dfbc/ctl_dfbc.cpp
+  test/dfbc/dfbc_driver.hpp
+  test/dfbc/attitude_rate_cmd.h
+  test/dfbc/CMakeLists.txt
   test/dfbc/reference_replay.cpp
   test/math_header_test.cpp
   .github/workflows/ci.yml
