@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <iostream>
 #include <limits>
 #include <random>
@@ -25,7 +26,7 @@ xgc2_math::ImplicitWheelInput fixture() {
 }
 void bounds(const xgc2_math::ImplicitWheelResult& r, const xgc2_math::ImplicitWheelInput& in,
             const xgc2_math::ImplicitWheelParameters& p) {
-    for (int i = 0; i < 4; ++i) {
+    for (std::size_t i = 0; i < 4; ++i) {
         check(std::hypot(r.tire_force_world_n[i][0], r.tire_force_world_n[i][1]) <=
                   p.friction[i] * in.normal_force_n[i] + 1e-8,
               "combined friction circle");
@@ -51,7 +52,7 @@ int main() {
         check(std::abs(r.tire_force_world_n[0][0]) > 1, "traction is active, not just diagnostics");
         check(std::abs(r.tire_force_world_n[0][1]) > 1, "lateral skid force is active");
         // Contact Jacobian and applied wrench include the same wheel reaction.
-        for (int i = 0; i < 4; ++i) {
+        for (std::size_t i = 0; i < 4; ++i) {
             const auto f = r.tire_force_world_n[i];
             const auto q = r.predicted_velocity;
             const auto pos = in.contact_offset_world_m[i];
@@ -67,21 +68,21 @@ int main() {
         staticp.renewal_length_m.fill(0);
         in = fixture();
         in.external_force[0] = -8;
-        for (int i = 0; i < 4; ++i) {
+        for (std::size_t i = 0; i < 4; ++i) {
             s.tread_m[i][0] = -2 / p.stiffness_n_m[i];
             s.drive_error_rad[i] = -.16 / p.motor_i_nm;
         }
         r = implicitWheelContactStep(in, s, staticp);
         near(r.predicted_velocity[0], 0, 1e-9, "static support without creeping");
-        for (int i = 0; i < 4; ++i) {
+        for (std::size_t i = 0; i < 4; ++i) {
             near(r.tire_force_world_n[i][0], 2, 1e-7, "preloaded static traction");
             near(r.motor_torque_nm[i], .16, 1e-7, "static axle balance");
         }
         // Liftoff clears deformation and yields exactly zero tire force.
         in.normal_force_n.fill(0);
         r = implicitWheelContactStep(in, s, p);
-        for (int i = 0; i < 4; ++i)
-            for (int k = 0; k < 2; ++k) {
+        for (std::size_t i = 0; i < 4; ++i)
+            for (std::size_t k = 0; k < 2; ++k) {
                 near(r.tire_force_world_n[i][k], 0, 0, "no ghost traction");
                 near(r.memory.tread_m[i][k], 0, 0, "liftoff forgets tread");
             }
@@ -101,7 +102,7 @@ int main() {
         auto vrot = rot({in.velocity[0], in.velocity[1]});
         rotated.velocity[0] = vrot[0];
         rotated.velocity[1] = vrot[1];
-        for (int i = 0; i < 4; ++i) {
+        for (std::size_t i = 0; i < 4; ++i) {
             rotated.contact_offset_world_m[i] = rot(in.contact_offset_world_m[i]);
             rotated.rolling_direction_world[i] = rot(in.rolling_direction_world[i]);
             rotateds.tread_m[i] = rot(s.tread_m[i]);
@@ -110,16 +111,16 @@ int main() {
         auto expected = rot({base.predicted_velocity[0], base.predicted_velocity[1]});
         near(rr.predicted_velocity[0], expected[0], 2e-9, "rotation vx");
         near(rr.predicted_velocity[1], expected[1], 2e-9, "rotation vy");
-        for (int i = 2; i < 7; ++i)
+        for (std::size_t i = 2; i < 7; ++i)
             near(rr.predicted_velocity[i], base.predicted_velocity[i], 2e-8, "rotation scalar");
         // Mirror symmetry, including wheel permutation and yaw sign.
         auto mirror = in;
         auto mirrors = s;
-        const int perm[4] = {1, 0, 3, 2};
+        const std::size_t perm[4] = {1, 0, 3, 2};
         mirror.velocity[1] *= -1;
         mirror.velocity[2] *= -1;
-        for (int i = 0; i < 4; ++i) {
-            const int j = perm[i];
+        for (std::size_t i = 0; i < 4; ++i) {
+            const std::size_t j = perm[i];
             mirror.velocity[3 + i] = in.velocity[3 + j];
             mirror.target_rad_s[i] = in.target_rad_s[j];
             mirrors.tread_m[i] = {s.tread_m[j][0], -s.tread_m[j][1]};
@@ -142,7 +143,7 @@ int main() {
             std::generate(in.external_force.begin(), in.external_force.end(), [&] {
                 return unif(rng) * 3;
             });
-            for (int i = 0; i < 4; ++i) {
+            for (std::size_t i = 0; i < 4; ++i) {
                 s.drive_error_rad[i] = unif(rng);
                 s.tread_m[i] = {unif(rng) * .02, unif(rng) * .02};
                 in.normal_force_n[i] = std::abs(unif(rng)) * 150;
@@ -151,9 +152,9 @@ int main() {
             r = implicitWheelContactStep(in, s, p);
             bounds(r, in, p);
             double work = 0;
-            for (int i = 0; i < 4; ++i)
+            for (std::size_t i = 0; i < 4; ++i)
                 work += in.dt_s * r.motor_torque_nm[i] * in.target_rad_s[i];
-            for (int i = 0; i < 7; ++i)
+            for (std::size_t i = 0; i < 7; ++i)
                 work += in.dt_s * in.external_force[i] * r.predicted_velocity[i];
             const double excess =
                 implicitWheelEnergy(r.predicted_velocity, r.memory, p) - implicitWheelEnergy(in.velocity, s, p) - work;
@@ -178,7 +179,7 @@ int main() {
         check(std::abs(in.velocity[0]) < 2, "stiff coupled solve bounded");
         // PI steady tracking under finite load; compare integration steps.
         std::array<double, 3> terminal{};
-        int index = 0;
+        std::size_t index = 0;
         for (double h : {.001, .002, .004}) {
             in = fixture();
             in.dt_s = h;
@@ -190,7 +191,7 @@ int main() {
                 in.velocity = r.predicted_velocity;
                 s = r.memory;
             }
-            for (int i = 0; i < 4; ++i)
+            for (std::size_t i = 0; i < 4; ++i)
                 near(in.velocity[3 + i], 5, 1e-5, "loaded wheel servo has unity steady gain");
             terminal[index++] = in.velocity[0];
             // A stalled wheel with bounded torque must not accumulate unlimited

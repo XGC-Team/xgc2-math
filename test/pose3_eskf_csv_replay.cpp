@@ -2,17 +2,30 @@
 // imu,<recv>,<stamp>,gx,gy,gz,ax,ay,az
 // vrpn,<recv>,<stamp>,x,y,z,qx,qy,qz,qw
 #include <cmath>
-#include <cstdlib>
+#if __has_include(<filesystem>)
+#include <filesystem>
+#endif
+#ifndef __cpp_lib_filesystem
+#include <experimental/filesystem>
+#endif
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include <xgc2_math/estimation/pose3_inertial_eskf.hpp>
 
 namespace {
+
+#ifdef __cpp_lib_filesystem
+namespace file_system = std::filesystem;
+#else
+namespace file_system = std::experimental::filesystem;
+#endif
 
 std::vector<std::string> splitCsv(const std::string& line) {
     std::vector<std::string> cols;
@@ -21,11 +34,39 @@ std::vector<std::string> splitCsv(const std::string& line) {
     while (std::getline(ss, item, ',')) {
         cols.push_back(item);
     }
+    if (!line.empty() && line.back() == ',') {
+        cols.emplace_back();
+    }
     return cols;
 }
 
-double atofCol(const std::vector<std::string>& cols, std::size_t i) {
-    return i < cols.size() ? std::atof(cols[i].c_str()) : 0.0;
+double number(const std::string& token) {
+    std::size_t used = 0;
+    const double value = std::stod(token, &used);
+    if (token.find_first_not_of(" \t\r", used) != std::string::npos) {
+        throw std::invalid_argument("invalid numeric token: " + token);
+    }
+    return value;
+}
+
+double numberCol(const std::vector<std::string>& cols, std::size_t i) {
+    return number(cols.at(i));
+}
+
+double finiteArgument(const char* token) {
+    const double value = number(token);
+    if (!std::isfinite(value)) {
+        throw std::invalid_argument("CLI parameters must be finite");
+    }
+    return value;
+}
+
+bool booleanArgument(const char* token) {
+    const std::string value(token);
+    if (value != "0" && value != "1") {
+        throw std::invalid_argument("boolean CLI parameters must be 0 or 1");
+    }
+    return value == "1";
 }
 
 xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s, double body_to_marker_yaw_rad, double accel_noise_std,
@@ -63,18 +104,28 @@ xgc2_math::Pose3InertialEskfConfig bagConfig(double delay_s, double body_to_mark
 
 } // namespace
 
-int main(int argc, char** argv) {
+int runReplay(int argc, char** argv) {
     if (argc < 3 || argc > 9) {
         std::cerr << "usage: pose3_eskf_csv_replay events.csv state.csv [delay_s] [body_to_marker_yaw_rad]"
                      " [accel_noise_std] [density_0_or_1] [pose_floor_0_or_1] [pose_iterations]\n";
         return 2;
     }
-    const double delay_s = argc >= 4 ? std::atof(argv[3]) : 0.0;
-    const double body_to_marker_yaw_rad = argc >= 5 ? std::atof(argv[4]) : 0.0;
-    const double accel_noise_std = argc >= 6 ? std::atof(argv[5]) : 0.35;
-    const bool imu_noise_std_is_density = argc >= 7 ? std::atoi(argv[6]) != 0 : true;
-    const bool apply_pose_covariance_floor = argc >= 8 ? std::atoi(argv[7]) != 0 : true;
-    const int pose_update_iterations = argc >= 9 ? std::atoi(argv[8]) : 3;
+    const double delay_s = argc >= 4 ? finiteArgument(argv[3]) : 0.0;
+    const double body_to_marker_yaw_rad = argc >= 5 ? finiteArgument(argv[4]) : 0.0;
+    const double accel_noise_std = argc >= 6 ? finiteArgument(argv[5]) : 0.35;
+    const bool imu_noise_std_is_density = argc >= 7 ? booleanArgument(argv[6]) : true;
+    const bool apply_pose_covariance_floor = argc >= 8 ? booleanArgument(argv[7]) : true;
+    const double iterations = argc >= 9 ? finiteArgument(argv[8]) : 3.0;
+    if (delay_s < 0.0 || accel_noise_std <= 0.0 || iterations < 1.0 || iterations > 8.0 ||
+        std::floor(iterations) != iterations) {
+        throw std::invalid_argument("require delay >= 0, accel noise > 0 and integer pose iterations in [1,8]");
+    }
+    const int pose_update_iterations = static_cast<int>(iterations);
+
+    std::error_code identity_error;
+    if (std::string(argv[1]) == argv[2] || file_system::equivalent(argv[1], argv[2], identity_error)) {
+        throw std::invalid_argument("input and output CSV paths must differ");
+    }
 
     std::ifstream in(argv[1]);
     if (!in) {
@@ -93,27 +144,42 @@ int main(int argc, char** argv) {
     int pose_accepted = 0;
     int pose_ta = 0;
     int imu_n = 0;
+    int output_rows = 0;
+    std::size_t line_number = 0;
     std::string line;
     while (std::getline(in, line)) {
-        if (line.empty() || line[0] == '#') {
+        ++line_number;
+        const auto first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos || line[first] == '#') {
             continue;
         }
         const std::vector<std::string> cols = splitCsv(line);
-        if (cols.size() < 3) {
-            continue;
+        const std::string& kind = cols.front();
+        if ((kind != "imu" && kind != "vrpn") || (kind == "imu" && cols.size() != 9) ||
+            (kind == "vrpn" && cols.size() != 10)) {
+            throw std::invalid_argument("line " + std::to_string(line_number) + ": invalid event kind or column count");
         }
-        const std::string& kind = cols[0];
-        const double stamp = atofCol(cols, 2);
-        if (kind == "imu") {
-            if (cols.size() < 9) {
-                continue;
+        // Validate every numeric column. Sensor NaN/Inf are intentionally passed
+        // through so the estimator's invalid-sample contract remains observable.
+        for (std::size_t col = 1; col < cols.size(); ++col) {
+            try {
+                (void)numberCol(cols, col);
+            } catch (const std::exception&) {
+                throw std::invalid_argument("line " + std::to_string(line_number) + ", column " +
+                                            std::to_string(col + 1) + ": invalid numeric field");
             }
+        }
+        if (!std::isfinite(numberCol(cols, 1))) {
+            throw std::invalid_argument("line " + std::to_string(line_number) + ": receive time must be finite");
+        }
+        const double stamp = numberCol(cols, 2);
+        if (kind == "imu") {
             xgc2_math::InertialSample imu;
             imu.received = true;
             imu.valid = true;
             imu.stamp_sec = stamp;
-            imu.angular_velocity = Eigen::Vector3d(atofCol(cols, 3), atofCol(cols, 4), atofCol(cols, 5));
-            imu.linear_acceleration = Eigen::Vector3d(atofCol(cols, 6), atofCol(cols, 7), atofCol(cols, 8));
+            imu.angular_velocity = Eigen::Vector3d(numberCol(cols, 3), numberCol(cols, 4), numberCol(cols, 5));
+            imu.linear_acceleration = Eigen::Vector3d(numberCol(cols, 6), numberCol(cols, 7), numberCol(cols, 8));
             eskf.propagateInertial(imu);
             ++imu_n;
             if (!eskf.initialized()) {
@@ -124,17 +190,17 @@ int main(int argc, char** argv) {
                 << state.position.y() << ',' << state.position.z() << ',' << state.orientation.x() << ','
                 << state.orientation.y() << ',' << state.orientation.z() << ',' << state.orientation.w() << ','
                 << state.velocity.x() << ',' << state.velocity.y() << ',' << state.velocity.z() << '\n';
+            ++output_rows;
         } else if (kind == "vrpn") {
-            if (cols.size() < 10) {
-                continue;
-            }
             xgc2_math::PoseMeasurement pose;
             pose.received = true;
             pose.valid = true;
             pose.stamp_sec = stamp;
-            pose.pose.position = Eigen::Vector3d(atofCol(cols, 3), atofCol(cols, 4), atofCol(cols, 5));
-            pose.pose.orientation = xgc2_math::normalizedQuaternion(
-                Eigen::Quaterniond(atofCol(cols, 9), atofCol(cols, 6), atofCol(cols, 7), atofCol(cols, 8)));
+            pose.pose.position = Eigen::Vector3d(numberCol(cols, 3), numberCol(cols, 4), numberCol(cols, 5));
+            // Do not normalize here: normalizedQuaternion's safe fallback would
+            // turn an invalid recorded quaternion into a valid identity sample.
+            pose.pose.orientation =
+                Eigen::Quaterniond(numberCol(cols, 9), numberCol(cols, 6), numberCol(cols, 7), numberCol(cols, 8));
             const auto result = eskf.updatePose(pose);
             if (result.accepted) {
                 ++pose_accepted;
@@ -144,7 +210,26 @@ int main(int argc, char** argv) {
             }
         }
     }
+    if (in.bad()) {
+        throw std::runtime_error("cannot finish reading input CSV");
+    }
+    out.flush();
+    if (!out) {
+        throw std::runtime_error("cannot finish writing state CSV");
+    }
     std::cerr << "imu=" << imu_n << " pose_accepted=" << pose_accepted << " pose_ta=" << pose_ta
               << " initialized=" << static_cast<int>(eskf.initialized()) << "\n";
+    if (!eskf.initialized() || output_rows == 0) {
+        throw std::runtime_error("replay produced no initialized IMU state rows");
+    }
     return 0;
+}
+
+int main(int argc, char** argv) {
+    try {
+        return runReplay(argc, argv);
+    } catch (const std::exception& error) {
+        std::cerr << "replay failed: " << error.what() << '\n';
+        return 1;
+    }
 }
