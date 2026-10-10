@@ -37,6 +37,8 @@ test -f /usr/include/xgc2_math/trajectory/analytic/3d/helix_yz_3d.hpp
 test -f /usr/include/xgc2_math/trajectory/analytic/3d/torus_knot_3d.hpp
 test -f /usr/include/xgc2_math/control/se2_nmpc_problem.hpp
 test -f /usr/include/xgc2_math/control/se3_nmpc_problem.hpp
+test -f /usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h
+dpkg-query -L libxgc2-math-control-dev | grep -Fx /usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h
 test -f /usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake
 
 probe_dir="${XGC2_MATH_SMOKE_DIR:-$(mktemp -d -t xgc2-math-smoke-XXXXXX)}"
@@ -44,7 +46,7 @@ mkdir -p "${probe_dir}"
 
 cat > "${probe_dir}/CMakeLists.txt" <<'CMAKE'
 cmake_minimum_required(VERSION 3.10)
-project(xgc2_math_probe LANGUAGES CXX)
+project(xgc2_math_probe LANGUAGES C CXX)
 
 find_package(xgc2_math REQUIRED CONFIG)
 xgc2_math_require()
@@ -52,10 +54,15 @@ xgc2_math_require()
 add_executable(link_probe link_probe.cpp)
 target_compile_features(link_probe PRIVATE cxx_std_17)
 target_link_libraries(link_probe PRIVATE xgc2_math::math)
+
+add_executable(wire_probe wire_probe.c)
+target_compile_features(wire_probe PRIVATE c_std_11)
+target_link_libraries(wire_probe PRIVATE xgc2_math::control)
 CMAKE
 
 cat > "${probe_dir}/link_probe.cpp" <<'CPP'
 #include <xgc2_math/math.hpp>
+#include <xgc2_math/native/ctl_dfbc_wire_v1.h>
 
 int main()
 {
@@ -120,9 +127,20 @@ int main()
 }
 CPP
 
+cat > "${probe_dir}/wire_probe.c" <<'C'
+#include <xgc2_math/native/ctl_dfbc_wire_v1.h>
+
+int main(void)
+{
+  xgc_attitude_rate_cmd_v1 cmd = {0};
+  return sizeof(cmd) == 104 ? 0 : 1;
+}
+C
+
 mkdir -p "${probe_dir}/build"
 (cd "${probe_dir}/build" && cmake "${probe_dir}")
 cmake --build "${probe_dir}/build" -- -j2
 "${probe_dir}/build/link_probe"
+"${probe_dir}/build/wire_probe"
 
 echo "libxgc2-math-dev installed smoke test passed."

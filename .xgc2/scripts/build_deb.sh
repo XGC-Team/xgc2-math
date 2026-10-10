@@ -165,6 +165,7 @@ write_control "${control_pkg}" "libxgc2-math-utils-dev (= ${version}), ${base_de
   "XGC2 math control headers"
 copy_path "${stage_dir}/usr/include/xgc2_math/control" "${pkg_dir}/${control_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/control.hpp" "${pkg_dir}/${control_pkg}"
+copy_path "${stage_dir}/usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h" "${pkg_dir}/${control_pkg}"
 
 meta_pkg="libxgc2-math-dev"
 write_control "${meta_pkg}" \
@@ -207,6 +208,7 @@ test ! -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analyti
 test ! -f "${pkg_dir}/${trajectory_pkg}/usr/include/xgc2_math/trajectory/analytic/koopman.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control.hpp"
 test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/control/se3_nmpc_problem.hpp"
+test -f "${pkg_dir}/${control_pkg}/usr/include/xgc2_math/native/ctl_dfbc_wire_v1.h"
 test -f "${pkg_dir}/${meta_pkg}/usr/include/xgc2_math/math.hpp"
 test -f "${pkg_dir}/${meta_pkg}/usr/lib/cmake/xgc2_math/xgc2_mathConfig.cmake"
 

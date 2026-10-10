@@ -10,13 +10,13 @@ extern "C" {
 /* "xgc.attitude_rate_cmd/1": geometric controller output (before any
  * vehicle-specific thrust mapping). */
 typedef struct xgc_attitude_rate_cmd_v1 {
-  double stamp;                 /* stamp of the state it was computed from */
-  double specific_thrust;       /* m/s^2 along body z */
-  double q_wxyz[4];             /* desired attitude */
-  double body_rate[3];          /* rad/s */
-  double position_error[3];
-  uint32_t success;
-  uint32_t flags;
+    double stamp;           /* stamp of the state it was computed from */
+    double specific_thrust; /* m/s^2 along body z */
+    double q_wxyz[4];       /* desired attitude */
+    double body_rate[3];    /* rad/s */
+    double position_error[3];
+    uint32_t success;
+    uint32_t flags;
 } xgc_attitude_rate_cmd_v1;
 
 #ifdef __cplusplus
