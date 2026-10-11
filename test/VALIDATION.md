@@ -138,3 +138,61 @@ The finite synthetic scenarios verify the stated numerical models and
 contracts. They do not establish vehicle-level performance or statistical
 consistency across arbitrary sensor/plant distributions. Generated results
 are reproducible build artifacts and are not checked in as golden outputs.
+
+## Scene component (`xgc2_math::scene`)
+
+Validated on 2026-10-10 on the branch `issue-215-scene-geometry`, based on `4a9686f`. The environment is the CI
+image's: Ubuntu 20.04 x86-64 with GCC 9.4.0, clang++ 10.0.0, Eigen 3.3.7, CMake 3.16.3, clang-format 10, clang-tidy 10
+and cppcheck 1.90. The oldest supported toolchain was exercised with Ubuntu 18.04's g++ 7.5.0 and Eigen 3.3.4.
+
+| Check | Result |
+|---|---|
+| Default CTest suite, GCC 9.4, RelWithDebInfo, strict warnings as errors | 99/99 passed, 44 of them scene tests |
+| Scene tests, clang++ 10, the same warnings as errors | 44/44 passed |
+| Scene tests, Ubuntu 18.04 g++ 7.5 with Eigen 3.3.4, the same warnings as errors | All 44 cases passed |
+| Scene probe of the installed layout against the four packages it depends on (scene, geometry, algebra, utils), GCC 9.4, clang++ 10 and g++ 7.5 | Passed |
+| Reference comparison with the original `world_lidar` core of commit `2940a99` (opt-in) | 5/5 passed, every compared value bit-identical |
+| AddressSanitizer and UBSan with leak detection, all four scene tests | 44 cases passed, no reports |
+| ThreadSanitizer (clang++ 10): the threaded fleet case, and four threads on one shared scene and beam pattern while revisions are built from that scene | Passed, no reports |
+| Formatting of all 119 non-vendored C++ files with clang-format 10 | Passed |
+| Whole-tree cppcheck 1.90 with the CI script's exact flags | Passed, no diagnostics |
+| clang-tidy with the CI configuration on `test/math_header_test.cpp`, which includes the umbrella and so every scene header | Passed, no diagnostics |
+| `git diff --check` and `.xgc2/scripts/check_package_compliance.sh` | Passed |
+| `.xgc2/scripts/build_deb.sh` for focal, then the installed smoke test on the extracted packages | Passed; 11 packages, all `Architecture: all` |
+
+The reference comparison builds the original core from a checkout of the scene repository, so it is opt-in
+(`-DXGC2_MATH_SCENE_REFERENCE_SOURCE=<checkout>`) and the standard suite and the Debian build do not depend on it. The
+fixtures are mixed random scenes of every obstacle type, the polytopes of the cluttered-environment libraries and a chain
+of 240 scene revisions scanned in all three modes: 4.4 million values and 36 packed clouds are identical to the last
+bit, against a documented tolerance of 1e-9 m. The placement, motion and convex-surface math was compared with the
+Python scene runtime it replaces on 1000 random placements and motions (bit-identical) and 300 mutated convex meshes
+(same decision, message and triangles); that comparison used throwaway scripts and is not part of the suite.
+
+The before and after table of `include/xgc2_math/scene/README.md` comes from `bench_world_lidar_reference` (the original
+benchmark built from the same sources) and `bench_scene_lidar`, built with the same compiler and flags and run
+alternately nine times on a shared 8-core host; the median CPU time is reported and the output checksums of both are
+equal. A repeat of three runs at the final commit gave the same checksums and ratios within about ten percent.
+
+Boundaries of this record:
+
+- The Jammy and Noble toolchains (g++ 11 and 13 with Eigen 3.4) and the Debian build images were not available; the
+  headers are plain C++17 and were compiled with three compilers on Eigen 3.3.4 and 3.3.7 only.
+- Building the whole tree with clang++ 10 fails on the base commit and still does: `-Wsign-conversion` in
+  `optimization/minco.hpp` and `optimization/root_finder.hpp`, and `geometry_property_test.support_maps` misses its
+  tolerance by 3.3e-15 against 3e-15. None of these files changed; only the scene targets were built with clang++.
+- ThreadSanitizer was run with clang++ 10 because the GCC 9.4 installation lacks `libtsan_preinit.o`. The allocation
+  test replaces the global allocation functions; it replaces the nothrow forms as well so that it stays consistent
+  under sanitizers that intercept them.
+- Performance was measured on the component's own benchmark only. Sample age, latency and thread scaling of a real
+  simulator need the schedulers (xsim, the scene adapter) and are not claimed here.
+
+```bash
+cmake -S . -B build-scene -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_CXX_FLAGS="-Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion -Wshadow -Wnon-virtual-dtor -Wold-style-cast -Woverloaded-virtual -Werror"
+cmake --build build-scene -j3 && (cd build-scene && ctest -L scene --output-on-failure)
+
+cmake -S . -B build-reference -DCMAKE_BUILD_TYPE=Release \
+  -DXGC2_MATH_SCENE_REFERENCE_SOURCE=/path/to/xgc2-scene-generation
+cmake --build build-reference -j3 --target scene_reference_test bench_scene_lidar bench_world_lidar_reference
+(cd build-reference && ctest -R scene_reference --output-on-failure)
+```
