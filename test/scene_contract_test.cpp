@@ -611,12 +611,12 @@ void sensorMetadata() {
                 },
                 "range/spacing/rate"),
             "no cover");
-    require(gpu_refused(
-                [](SensorMetadata* m) {
-                    m->v_res = 30;
-                },
-                "common angular step"),
-            "unequal steps");
+    auto rectangular = gpuMetadata();
+    rectangular.h_fov_deg = 360;
+    rectangular.v_fov_deg = 180;
+    rectangular.h_res = 360;
+    rectangular.v_res = 32;
+    validateGpuSensorMetadata(rectangular);
     require(gpu_refused(
                 [](SensorMetadata* m) {
                     m->frame_id.clear();

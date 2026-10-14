@@ -72,9 +72,8 @@ inline void validateGpuSensorMetadata(const SensorMetadata& m) {
     }
     const float h_step = static_cast<float>(m.h_fov_deg) / static_cast<float>(m.h_res);
     const float v_step = static_cast<float>(m.v_fov_deg) / static_cast<float>(m.v_res);
-    if (!std::isfinite(h_step) || h_step <= 0 || !std::isfinite(v_step) || v_step <= 0 || h_step != v_step) {
-        throw std::invalid_argument(
-            "original GPU requires one common angular step: h_fov_deg/h_res == v_fov_deg/v_res");
+    if (!std::isfinite(h_step) || h_step <= 0 || !std::isfinite(v_step) || v_step <= 0) {
+        throw std::invalid_argument("finite positive GPU horizontal and vertical angular steps required");
     }
     // Original shader asin(cover_dis/depth), with depth >= near.
     const float shader_cover = 0.55f * 1.7321f * spacing;
