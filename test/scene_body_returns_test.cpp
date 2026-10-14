@@ -57,7 +57,8 @@ int main() {
     config.h_fov_deg = 360;
     config.v_fov_deg = 60;
     const auto pattern = gpuBodyBeamPattern(config);
-    const auto center = std::size_t(config.v_res / 2) * config.h_res + config.h_res / 2;
+    const auto center = static_cast<std::size_t>(config.v_res / 2) * static_cast<std::size_t>(config.h_res) +
+                        static_cast<std::size_t>(config.h_res / 2);
     require((pattern[center] - direction).norm() < 1e-12);
     std::vector<TaggedPoint> map{{{9, 0, 0}, -1}}, merged;
     GpuBodyMergeScratch scratch;

@@ -98,7 +98,7 @@ inline void mergeBodyRays(const SensorConfig& config, const std::vector<VehicleB
 // CPU endpoint grid. It includes empty rays for dynamic-body-only returns.
 inline std::vector<Eigen::Vector3d> gpuBodyBeamPattern(const SensorConfig& config) {
     std::vector<Eigen::Vector3d> result;
-    result.reserve(std::size_t(config.h_res) * config.v_res);
+    result.reserve(static_cast<std::size_t>(config.h_res) * static_cast<std::size_t>(config.v_res));
     const double horizontal = config.h_fov_deg * detail::kPi / (180 * config.h_res);
     const double vertical = config.v_fov_deg * detail::kPi / (180 * config.v_res);
     for (int row = 0; row < config.v_res; ++row) {
@@ -174,7 +174,8 @@ inline void mergeGpuBodyCloud(const SensorConfig& config, const Eigen::Vector3d&
             column = (column % config.h_res + config.h_res) % config.h_res;
         if (column < 0 || column >= config.h_res || row < 0 || row >= config.v_res)
             continue;
-        const auto at = std::size_t(row) * config.h_res + column;
+        const auto at =
+            static_cast<std::size_t>(row) * static_cast<std::size_t>(config.h_res) + static_cast<std::size_t>(column);
         if (!scan.hit[at] || distance < scan.range[at]) {
             scan.range[at] = distance;
             scan.hit[at] = 1;
@@ -190,7 +191,7 @@ inline void mergeGpuBodyCloud(const SensorConfig& config, const Eigen::Vector3d&
         if (scan.vehicle_id[i] >= 0)
             output->push_back({scan.point(i), scan.vehicle_id[i]});
         else if (work.static_indices[i] >= 0)
-            output->push_back(static_points[work.static_indices[i]]);
+            output->push_back(static_points[static_cast<std::size_t>(work.static_indices[i])]);
     }
 }
 } // namespace xgc2_math::scene
