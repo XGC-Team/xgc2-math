@@ -186,6 +186,9 @@ if(XGC2_MATH_BUILD_TESTING)
       cluttered_cube_frame)
     xgc2_math_property_tests(scene_allocation_test scene
       counter_sees_allocations steady_state_scans steady_state_queries scan_scratch_is_bounded)
+    add_executable(scene_body_returns_test test/scene_body_returns_test.cpp)
+    target_link_libraries(scene_body_returns_test PRIVATE xgc2_math::scene)
+    add_test(NAME scene_body_returns COMMAND scene_body_returns_test)
 
     # Fleet scan benchmark, run by hand (see include/xgc2_math/scene/README.md).
     add_executable(bench_scene_lidar test/bench_scene_lidar.cpp)
