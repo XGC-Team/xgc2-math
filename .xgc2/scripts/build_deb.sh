@@ -123,6 +123,12 @@ copy_path "${stage_dir}/usr/include/xgc2_math/utils.hpp" "${pkg_dir}/${utils_pkg
 geometry_pkg="libxgc2-math-geometry-dev"
 write_control "${geometry_pkg}" "libxgc2-math-algebra-dev (= ${version}), libxgc2-math-utils-dev (= ${version}), python3, ${base_depends}" \
   "XGC2 math geometry headers and numerical bindings"
+# Numerical scene headers moved into geometry-dev in revision 4. The trailing
+# tilde keeps this boundary below every revision-4 distribution-suffixed build.
+cat >> "${pkg_dir}/${geometry_pkg}/DEBIAN/control" <<EOF
+Breaks: libxgc2-math-scene-dev (<< 0.6.0-4~)
+Replaces: libxgc2-math-scene-dev (<< 0.6.0-4~)
+EOF
 copy_path "${stage_dir}/usr/include/xgc2_math/geometry" "${pkg_dir}/${geometry_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/geometry.hpp" "${pkg_dir}/${geometry_pkg}"
 copy_path "${stage_dir}/usr/lib/python3/dist-packages/xgc2_math" "${pkg_dir}/${geometry_pkg}"

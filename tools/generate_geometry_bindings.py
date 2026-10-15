@@ -58,7 +58,7 @@ def _validate(g):
         if not 0 < len(rows) <= 0xffffffff:
             raise ValueError("invalid halfspace count")
         for p in rows:
-            if len(p) != 4 or any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in p) or math.hypot(*p[:3]) == 0:
+            if len(p) != 4 or any(isinstance(x,bool) or not isinstance(x,(int,float)) or not math.isfinite(x) for x in p) or math.hypot(p[0], math.hypot(p[1], p[2])) == 0:
                 raise ValueError("invalid halfspace row")
     return spec
 

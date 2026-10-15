@@ -79,6 +79,9 @@ shape = {'type': 'ring', 'radii': [3, 2], 'tubeRadius': 0.25}
 kind, parameters = geometry.encode_geometry(shape)
 assert kind == 6 and len(parameters) == 24
 assert geometry.decode_geometry(kind, parameters) == shape
+halfspace = {'type': 'halfspaces', 'halfspaces': [[1, 0, 0, -1]]}
+kind, parameters = geometry.encode_geometry(halfspace)
+assert kind == 7 and geometry.decode_geometry(kind, parameters) == halfspace
 registry = Path('/usr/share/xgc2_math/typescript/geometry_registry.ts').read_text()
 assert 'export const geometryRegistry' in registry and 'export type NamedGeometry' in registry
 assert 'Uint8Array' not in registry and 'encodeGeometry' not in registry
