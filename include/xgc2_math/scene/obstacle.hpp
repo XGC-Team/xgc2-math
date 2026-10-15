@@ -7,8 +7,8 @@
 
 namespace xgc2_math::scene {
 
-// A closed solid (ring is nonconvex). Every shape is defined in its local frame and placed by (position, orientation), local ->
-// world. Conventions follow the scene geometry messages: box `size` is the full side length, cylinder `height`
+// A closed solid (ring is nonconvex). Every shape is defined in its local frame and placed by (position, orientation),
+// local -> world. Conventions follow the scene geometry messages: box `size` is the full side length, cylinder `height`
 // is the full height along local z, capsule `height` is the straight cylindrical part along local z, convex `vertices`
 // are local-frame points whose convex hull is the solid.
 struct Obstacle {
@@ -21,7 +21,7 @@ struct Obstacle {
     double radius = 0.0;
     double height = 0.0;
     Eigen::Vector2d radii = Eigen::Vector2d::Zero(); // ring: local X/Y ellipse semiaxes
-    double tubeRadius = 0.0; // ring: Euclidean circular tube radius
+    double tubeRadius = 0.0;                         // ring: Euclidean circular tube radius
     std::vector<Eigen::Vector3d> vertices;
 
     static Obstacle box(const Eigen::Vector3d& center, const Eigen::Vector3d& size,

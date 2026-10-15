@@ -185,8 +185,7 @@ class ShapeTable {
             s.params = Eigen::Vector3d(o.radii.x(), o.radii.y(), o.tubeRadius);
             Eigen::Vector3d extent;
             for (int k = 0; k < 3; ++k)
-                extent[k] = std::hypot(o.radii.x() * s.rotation(k, 0),
-                                       o.radii.y() * s.rotation(k, 1)) + o.tubeRadius;
+                extent[k] = std::hypot(o.radii.x() * s.rotation(k, 0), o.radii.y() * s.rotation(k, 1)) + o.tubeRadius;
             box.lo = s.position - extent;
             box.hi = s.position + extent;
             break;
@@ -308,14 +307,14 @@ class ShapeTable {
 
     // Nearest forward boundary, including an inside origin's exit. Rings may
     // intersect a line in disjoint intervals and cannot use intersect().
-    double closestSurface(std::size_t i, const Eigen::Vector3d& o, const Eigen::Vector3d& d,
-                          double maxRange) const {
+    double closestSurface(std::size_t i, const Eigen::Vector3d& o, const Eigen::Vector3d& d, double maxRange) const {
         const auto& s = core_[i];
         if (s.type == Obstacle::kRing)
-            return ellipticRingRayClosest(s.rotation.transpose() * (o - s.position),
-                                          s.rotation.transpose() * d, s.params.head<2>(), s.params.z(), maxRange);
+            return ellipticRingRayClosest(s.rotation.transpose() * (o - s.position), s.rotation.transpose() * d,
+                                          s.params.head<2>(), s.params.z(), maxRange);
         double lo, hi;
-        if (!intersect(i, o, d, &lo, &hi)) return kInf;
+        if (!intersect(i, o, d, &lo, &hi))
+            return kInf;
         const double t = lo >= 0 ? lo : hi;
         return t >= 0 && t <= maxRange ? t : kInf;
     }
