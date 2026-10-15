@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -197,8 +198,10 @@ class ShapeTable {
             validateTriangleMesh(o.vertices, o.triangles);
             s.mesh_first = static_cast<std::uint32_t>(mesh_triangles_.size());
             s.mesh_count = static_cast<std::uint32_t>(o.triangles.size());
-            for (const auto& t : o.triangles)
-                mesh_triangles_.push_back({o.vertices[t[0]], o.vertices[t[1]], o.vertices[t[2]]});
+            std::transform(o.triangles.begin(), o.triangles.end(), std::back_inserter(mesh_triangles_),
+                           [&](const auto& t) {
+                               return MeshTriangle{o.vertices[t[0]], o.vertices[t[1]], o.vertices[t[2]]};
+                           });
             for (const auto& v : o.vertices)
                 box.grow(s.position + s.rotation * v);
             break;

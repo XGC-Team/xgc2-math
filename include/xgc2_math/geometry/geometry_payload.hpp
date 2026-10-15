@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -44,9 +45,11 @@ inline const GeometryTypeInfo& geometryTypeInfo(uint32_t type) {
     throw std::invalid_argument("unknown geometry type: " + std::to_string(type));
 }
 inline GeometryType geometryTypeFromName(std::string_view name) {
-    for (const auto& info : geometryRegistry)
-        if (info.name == name)
-            return info.type;
+    const auto info = std::find_if(std::begin(geometryRegistry), std::end(geometryRegistry), [&](const auto& entry) {
+        return entry.name == name;
+    });
+    if (info != std::end(geometryRegistry))
+        return info->type;
     throw std::invalid_argument("unknown geometry name: " + std::string(name));
 }
 inline std::string_view geometryTypeName(GeometryType type) {
@@ -171,9 +174,10 @@ inline void validateGeometry(const Geometry& g) {
                 if (!std::isfinite(x))
                     throw std::invalid_argument("nonfinite vertex");
         for (const auto& t : g.triangles) {
-            for (auto i : t)
-                if (i >= g.vertices.size())
-                    throw std::invalid_argument("triangle index out of range");
+            if (std::any_of(t.begin(), t.end(), [&](auto i) {
+                    return i >= g.vertices.size();
+                }))
+                throw std::invalid_argument("triangle index out of range");
             if (t[0] == t[1] || t[0] == t[2] || t[1] == t[2])
                 throw std::invalid_argument("repeated triangle index");
         }
@@ -285,8 +289,9 @@ inline Geometry decodeGeometry(const GeometryPayload& payload) {
     payload_detail::Reader r{payload.parameters};
     switch (g.type) {
     case GeometryType::Box:
-        for (double& x : g.size)
-            x = r.f64();
+        std::generate(g.size.begin(), g.size.end(), [&] {
+            return r.f64();
+        });
         break;
     case GeometryType::Sphere:
         g.radius = r.f64();
@@ -297,13 +302,15 @@ inline Geometry decodeGeometry(const GeometryPayload& payload) {
         g.height = r.f64();
         break;
     case GeometryType::Ring:
-        for (double& x : g.radii)
-            x = r.f64();
+        std::generate(g.radii.begin(), g.radii.end(), [&] {
+            return r.f64();
+        });
         g.tubeRadius = r.f64();
         break;
     case GeometryType::Ellipsoid:
-        for (double& x : g.semiaxes)
-            x = r.f64();
+        std::generate(g.semiaxes.begin(), g.semiaxes.end(), [&] {
+            return r.f64();
+        });
         break;
     case GeometryType::Convex:
     case GeometryType::Mesh: {
@@ -314,11 +321,13 @@ inline Geometry decodeGeometry(const GeometryPayload& payload) {
         g.vertices.resize(nv);
         g.triangles.resize(nt);
         for (auto& v : g.vertices)
-            for (double& x : v)
-                x = r.f64();
+            std::generate(v.begin(), v.end(), [&] {
+                return r.f64();
+            });
         for (auto& t : g.triangles)
-            for (auto& x : t)
-                x = r.u32();
+            std::generate(t.begin(), t.end(), [&] {
+                return r.u32();
+            });
         break;
     }
     case GeometryType::Halfspaces: {
@@ -327,8 +336,9 @@ inline Geometry decodeGeometry(const GeometryPayload& payload) {
             throw std::invalid_argument("halfspace count does not match payload length");
         g.planes.resize(n);
         for (auto& p : g.planes)
-            for (double& x : p)
-                x = r.f64();
+            std::generate(p.begin(), p.end(), [&] {
+                return r.f64();
+            });
         break;
     }
     }

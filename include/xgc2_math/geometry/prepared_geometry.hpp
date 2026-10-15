@@ -12,8 +12,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iterator>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <type_traits>
 #include <variant>
@@ -41,15 +43,13 @@ inline GeometryVertex array(const Eigen::Vector3d& v) {
 inline Geometry convexOf(const std::vector<Eigen::Vector3d>& vertices) {
     std::vector<GeometryVertex> out;
     out.reserve(vertices.size());
-    for (const auto& v : vertices)
-        out.push_back(array(v));
+    std::transform(vertices.begin(), vertices.end(), std::back_inserter(out), array);
     return Geometry::convex(std::move(out));
 }
 inline std::vector<Eigen::Vector3d> eigenVertices(const Geometry& g) {
     std::vector<Eigen::Vector3d> out;
     out.reserve(g.vertices.size());
-    for (const auto& v : g.vertices)
-        out.push_back(eigen(v));
+    std::transform(g.vertices.begin(), g.vertices.end(), std::back_inserter(out), eigen);
     return out;
 }
 inline Geometry finiteHalfspaces(const Geometry& g, const PreparationOptions& options) {
@@ -108,7 +108,7 @@ inline std::vector<ConvexPiece> meshParts(const Geometry& g, const PreparationOp
     if (!(scale > 0))
         throw std::invalid_argument("degenerate mesh");
     for (const auto& t : g.triangles) {
-        for (int j = 0; j < 3; ++j) {
+        for (std::size_t j = 0; j < 3; ++j) {
             const auto a = t[j], b = t[(j + 1) % 3];
             auto& edge = edges[{std::min(a, b), std::max(a, b)}];
             ++edge.first;
@@ -131,9 +131,10 @@ inline std::vector<ConvexPiece> meshParts(const Geometry& g, const PreparationOp
             }))
             planes.push_back(p);
     }
-    for (const auto& e : edges)
-        if (e.second.first != 2 || e.second.second != 0)
-            throw std::invalid_argument("mesh must be closed with consistently oriented manifold edges");
+    if (std::any_of(edges.begin(), edges.end(), [](const auto& e) {
+            return e.second.first != 2 || e.second.second != 0;
+        }))
+        throw std::invalid_argument("mesh must be closed with consistently oriented manifold edges");
     if (planes.size() > options.maxMeshPlanes)
         throw std::invalid_argument("mesh decomposition plane limit exceeded");
     std::vector<Eigen::Vector3d> corners;
@@ -181,9 +182,11 @@ inline std::vector<ConvexPiece> meshParts(const Geometry& g, const PreparationOp
     }
     std::vector<ConvexPiece> result;
     for (auto& cell : cells) {
-        Eigen::Vector3d center = Eigen::Vector3d::Zero();
-        for (const auto& v : cell)
-            center += v;
+        Eigen::Vector3d center = std::accumulate(cell.begin(), cell.end(), Eigen::Vector3d(Eigen::Vector3d::Zero()),
+                                                 [](Eigen::Vector3d sum, const Eigen::Vector3d& v) {
+                                                     sum += v;
+                                                     return sum;
+                                                 });
         center /= double(cell.size());
         if (insideMesh(g, center))
             result.push_back({convexOf(cell), {}, 0});
@@ -531,11 +534,13 @@ class PreparedGeometryCache {
             throw std::invalid_argument("zero geometry cache capacity");
     }
     std::shared_ptr<const PreparedGeometry> prepare(const GeometryPayload& p, const PreparationOptions& o = {}) {
-        for (const auto& e : entries_)
-            if (e.value->original == p && e.options.ringSegments == o.ringSegments &&
-                e.options.maxHalfspaceRows == o.maxHalfspaceRows && e.options.maxMeshPlanes == o.maxMeshPlanes &&
-                e.options.maxPieces == o.maxPieces)
-                return e.value;
+        const auto entry = std::find_if(entries_.begin(), entries_.end(), [&](const auto& e) {
+            return e.value->original == p && e.options.ringSegments == o.ringSegments &&
+                   e.options.maxHalfspaceRows == o.maxHalfspaceRows && e.options.maxMeshPlanes == o.maxMeshPlanes &&
+                   e.options.maxPieces == o.maxPieces;
+        });
+        if (entry != entries_.end())
+            return entry->value;
         auto value = std::make_shared<const PreparedGeometry>(prepareGeometry(p, o));
         if (entries_.size() == capacity_)
             entries_.erase(entries_.begin());

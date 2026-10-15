@@ -3,9 +3,11 @@
 #include "xgc2_math/geometry/prepared_geometry.hpp"
 #include "xgc2_math/scene/lidar_scene.hpp"
 #include "xgc2_math/scene/scene_conversion.hpp"
+#include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <iostream>
+#include <iterator>
 #include <new>
 #include <random>
 
@@ -56,8 +58,9 @@ static Geometry squareFrame() {
     const std::array<std::array<double, 2>, 4> corners{{{-1, -1}, {1, -1}, {1, 1}, {-1, 1}}};
     for (double z : {-.5, .5})
         for (double r : {2., 1.})
-            for (auto c : corners)
-                v.push_back({c[0] * r, c[1] * r, z});
+            std::transform(corners.begin(), corners.end(), std::back_inserter(v), [&](const auto& c) {
+                return GeometryVertex{c[0] * r, c[1] * r, z};
+            });
     std::vector<GeometryTriangle> t;
     const auto quad = [&](uint32_t a, uint32_t b, uint32_t c, uint32_t d) {
         t.push_back({a, b, c});
@@ -251,9 +254,9 @@ static void mesh() {
             bool inside = false;
             for (const auto& part : p.parts) {
                 const auto hull = scene::buildPolytope(preparation_detail::eigenVertices(part.geometry));
-                bool yes = true;
-                for (const auto& plane : hull.planes)
-                    yes &= plane.n.dot(point) <= plane.d + 1e-9;
+                const bool yes = std::all_of(hull.planes.begin(), hull.planes.end(), [&](const auto& plane) {
+                    return plane.n.dot(point) <= plane.d + 1e-9;
+                });
                 inside |= yes;
             }
             check(inside == expected, "polyhedral hole classification");

@@ -18,26 +18,29 @@ inline void validateTriangleMesh(const std::vector<Eigen::Vector3d>& vertices,
                                  const std::vector<std::array<uint32_t, 3>>& triangles) {
     if (vertices.size() < 4 || triangles.empty())
         throw std::invalid_argument("mesh requires vertices and triangles");
-    for (const auto& v : vertices)
-        if (!v.allFinite())
-            throw std::invalid_argument("nonfinite mesh vertex");
+    if (std::any_of(vertices.begin(), vertices.end(), [](const auto& v) {
+            return !v.allFinite();
+        }))
+        throw std::invalid_argument("nonfinite mesh vertex");
     std::map<std::pair<uint32_t, uint32_t>, std::pair<unsigned, int>> edges;
     for (const auto& t : triangles) {
-        for (auto i : t)
-            if (i >= vertices.size())
-                throw std::invalid_argument("mesh index out of range");
+        if (std::any_of(t.begin(), t.end(), [&](auto i) {
+                return i >= vertices.size();
+            }))
+            throw std::invalid_argument("mesh index out of range");
         if ((vertices[t[1]] - vertices[t[0]]).cross(vertices[t[2]] - vertices[t[0]]).squaredNorm() == 0)
             throw std::invalid_argument("degenerate mesh triangle");
-        for (int j = 0; j < 3; ++j) {
+        for (std::size_t j = 0; j < 3; ++j) {
             const auto a = t[j], b = t[(j + 1) % 3];
             auto& e = edges[{std::min(a, b), std::max(a, b)}];
             ++e.first;
             e.second += a < b ? 1 : -1;
         }
     }
-    for (const auto& e : edges)
-        if (e.second.first != 2 || e.second.second != 0)
-            throw std::invalid_argument("mesh must have closed consistently oriented manifold edges");
+    if (std::any_of(edges.begin(), edges.end(), [](const auto& e) {
+            return e.second.first != 2 || e.second.second != 0;
+        }))
+        throw std::invalid_argument("mesh must have closed consistently oriented manifold edges");
 }
 inline double triangleDistance(const Eigen::Vector3d& p, const MeshTriangle& t) {
     const Eigen::Vector3d ab = t.b - t.a, ac = t.c - t.a, ap = p - t.a;

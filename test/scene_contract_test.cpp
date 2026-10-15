@@ -126,8 +126,10 @@ using xgc2_math::geometry::Geometry;
 std::vector<SceneObstacleDescription> documentScene() {
     const auto convex = [] {
         std::vector<xgc2_math::geometry::GeometryVertex> v;
-        for (const auto& p : prism())
-            v.push_back({p.x(), p.y(), p.z()});
+        const auto points = prism();
+        std::transform(points.begin(), points.end(), std::back_inserter(v), [](const auto& p) {
+            return xgc2_math::geometry::GeometryVertex{p.x(), p.y(), p.z()};
+        });
         return Geometry::convex(v);
     }();
     return {{pose(6, 0, 1, .3), {{encodeGeometry(Geometry::box({1, 2, 2})), pose(0, 0, 0)}}},
