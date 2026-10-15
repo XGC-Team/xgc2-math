@@ -153,13 +153,10 @@ void sceneTests() {
     }
     check(rejected, "convex occupied set explicitly rejects ring");
     SceneObstacleDescription o;
-    o.id = "r";
     o.pose.position = center;
     o.pose.orientation = rotation;
     ScenePartDescription p;
-    p.type = "ring";
-    p.radii = {1, 1.2};
-    p.tubeRadius = .05;
+    p.geometry = xgc2_math::geometry::encodeGeometry(xgc2_math::geometry::Geometry::ring({1, 1.2}, .05));
     p.pose.position = {.3, .2, .1};
     p.pose.orientation = rotation;
     o.parts.push_back(p);

@@ -121,10 +121,12 @@ copy_path "${stage_dir}/usr/include/xgc2_math/utils" "${pkg_dir}/${utils_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/utils.hpp" "${pkg_dir}/${utils_pkg}"
 
 geometry_pkg="libxgc2-math-geometry-dev"
-write_control "${geometry_pkg}" "libxgc2-math-algebra-dev (= ${version}), libxgc2-math-utils-dev (= ${version}), ${base_depends}" \
-  "XGC2 math geometry headers"
+write_control "${geometry_pkg}" "libxgc2-math-algebra-dev (= ${version}), libxgc2-math-utils-dev (= ${version}), python3, ${base_depends}" \
+  "XGC2 math geometry headers and numerical bindings"
 copy_path "${stage_dir}/usr/include/xgc2_math/geometry" "${pkg_dir}/${geometry_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/geometry.hpp" "${pkg_dir}/${geometry_pkg}"
+copy_path "${stage_dir}/usr/lib/python3/dist-packages/xgc2_math" "${pkg_dir}/${geometry_pkg}"
+copy_path "${stage_dir}/usr/share/xgc2_math/typescript" "${pkg_dir}/${geometry_pkg}"
 
 filter_pkg="libxgc2-math-filter-dev"
 write_control "${filter_pkg}" "libxgc2-math-algebra-dev (= ${version}), libxgc2-math-utils-dev (= ${version}), ${base_depends}" \
@@ -171,6 +173,19 @@ write_control "${scene_pkg}" "libxgc2-math-geometry-dev (= ${version}), ${base_d
 copy_path "${stage_dir}/usr/include/xgc2_math/scene" "${pkg_dir}/${scene_pkg}"
 copy_path "${stage_dir}/usr/include/xgc2_math/scene.hpp" "${pkg_dir}/${scene_pkg}"
 
+# Keep the numerical dependency direction geometry -> algebra/utils. The prepared
+# geometry API borrows these numerical foundations at their existing include paths;
+# higher-level scene aggregation depends on geometry, never the reverse.
+while IFS= read -r relative_header; do
+  case "${relative_header}" in ''|'#'*) continue ;; esac
+  source_header="${pkg_dir}/${scene_pkg}/usr/include/xgc2_math/${relative_header}"
+  target_header="${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/${relative_header}"
+  test -f "${source_header}"
+  mkdir -p "$(dirname "${target_header}")"
+  mv "${source_header}" "${target_header}"
+done < "${repo_root}/.xgc2/geometry-scene-headers.txt"
+
+
 meta_pkg="libxgc2-math-dev"
 write_control "${meta_pkg}" \
   "libxgc2-math-algebra-dev (= ${version}), libxgc2-math-utils-dev (= ${version}), libxgc2-math-geometry-dev (= ${version}), libxgc2-math-filter-dev (= ${version}), libxgc2-math-observer-dev (= ${version}), libxgc2-math-estimation-dev (= ${version}), libxgc2-math-optimization-dev (= ${version}), libxgc2-math-trajectory-dev (= ${version}), libxgc2-math-control-dev (= ${version}), libxgc2-math-scene-dev (= ${version}), ${base_depends}" \
@@ -186,6 +201,19 @@ test -f "${pkg_dir}/${utils_pkg}/usr/include/xgc2_math/utils/status.hpp"
 test -f "${pkg_dir}/${utils_pkg}/usr/include/xgc2_math/utils/sample_timing.hpp"
 test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/se2.hpp"
 test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/occupied_sets/sphere_set.h"
+test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/geometry_payload.hpp"
+test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/geometry_registry.def"
+test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/geometry/prepared_geometry.hpp"
+test -f "${pkg_dir}/${geometry_pkg}/usr/lib/python3/dist-packages/xgc2_math/__init__.py"
+test -f "${pkg_dir}/${geometry_pkg}/usr/lib/python3/dist-packages/xgc2_math/geometry.py"
+test -f "${pkg_dir}/${geometry_pkg}/usr/share/xgc2_math/typescript/geometry.ts"
+test -f "${pkg_dir}/${geometry_pkg}/usr/share/xgc2_math/typescript/geometry_registry.ts"
+while IFS= read -r relative_header; do
+  case "${relative_header}" in ''|'#'*) continue ;; esac
+  test -f "${pkg_dir}/${geometry_pkg}/usr/include/xgc2_math/${relative_header}"
+  test ! -e "${pkg_dir}/${scene_pkg}/usr/include/xgc2_math/${relative_header}"
+done < "${repo_root}/.xgc2/geometry-scene-headers.txt"
+
 test -f "${pkg_dir}/${filter_pkg}/usr/include/xgc2_math/filter/exponential_filter.hpp"
 test -f "${pkg_dir}/${observer_pkg}/usr/include/xgc2_math/observer/differentiator.hpp"
 test -f "${pkg_dir}/${estimation_pkg}/usr/include/xgc2_math/estimation/pose3_inertial_eskf.hpp"

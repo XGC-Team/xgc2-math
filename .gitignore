@@ -8,3 +8,6 @@
 /Makefile
 /Testing/
 /cmake_install.cmake
+
+__pycache__/
+*.pyc

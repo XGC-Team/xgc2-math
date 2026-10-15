@@ -1,0 +1,9 @@
+# Pure numerical scene foundations required by geometry/prepared_geometry.hpp.
+# Installed include paths stay unchanged; these files belong only to geometry-dev.
+scene/bvh.hpp
+scene/ellipse_ring.hpp
+scene/obstacle.hpp
+scene/polytope.hpp
+scene/shape_table.hpp
+scene/surface_sampling.hpp
+scene/triangle_mesh.hpp

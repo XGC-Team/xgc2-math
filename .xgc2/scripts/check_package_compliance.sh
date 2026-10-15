@@ -81,6 +81,8 @@ required_files=(
   .xgc2/scripts/check_cpp_quality.sh
   .xgc2/scripts/check_package_compliance.sh
   .xgc2/scripts/smoke_test_installed.sh
+  .xgc2/scripts/smoke_test_geometry_installed.sh
+  .xgc2/geometry-scene-headers.txt
 )
 
 for file in "${required_files[@]}"; do

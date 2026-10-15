@@ -170,7 +170,7 @@ class LidarScene {
 
     // Bitwise equal definitions compile and sample to bitwise equal shapes.
     static bool sameObstacle(const Obstacle& a, const Obstacle& b) {
-        if (a.type != b.type || a.vertices.size() != b.vertices.size() ||
+        if (a.type != b.type || a.vertices.size() != b.vertices.size() || a.triangles != b.triangles ||
             !sameBits(a.position.data(), b.position.data(), 3) ||
             !sameBits(a.orientation.coeffs().data(), b.orientation.coeffs().data(), 4) ||
             !sameBits(a.size.data(), b.size.data(), 3) || !sameBits(&a.radius, &b.radius, 1) ||

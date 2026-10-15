@@ -3,6 +3,8 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include <array>
+#include <cstdint>
 #include <vector>
 
 namespace xgc2_math::scene {
@@ -12,7 +14,7 @@ namespace xgc2_math::scene {
 // is the full height along local z, capsule `height` is the straight cylindrical part along local z, convex `vertices`
 // are local-frame points whose convex hull is the solid.
 struct Obstacle {
-    enum Type { kBox, kSphere, kCylinder, kCapsule, kConvex, kRing };
+    enum Type : uint32_t { kBox, kSphere, kCylinder, kCapsule, kConvex, kRing, kEllipsoid, kMesh };
 
     Type type = kBox;
     Eigen::Vector3d position = Eigen::Vector3d::Zero();
@@ -23,6 +25,7 @@ struct Obstacle {
     Eigen::Vector2d radii = Eigen::Vector2d::Zero(); // ring: local X/Y ellipse semiaxes
     double tubeRadius = 0.0;                         // ring: Euclidean circular tube radius
     std::vector<Eigen::Vector3d> vertices;
+    std::vector<std::array<uint32_t, 3>> triangles; // explicit mesh topology, never convexified
 
     static Obstacle box(const Eigen::Vector3d& center, const Eigen::Vector3d& size,
                         const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity()) {
@@ -72,6 +75,28 @@ struct Obstacle {
         o.orientation = orientation;
         o.radii = radii;
         o.tubeRadius = tubeRadius;
+        return o;
+    }
+
+    static Obstacle ellipsoid(const Eigen::Vector3d& center, const Eigen::Vector3d& semiaxes,
+                              const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity()) {
+        Obstacle o;
+        o.type = kEllipsoid;
+        o.position = center;
+        o.size = semiaxes;
+        o.orientation = orientation;
+        return o;
+    }
+    static Obstacle mesh(const std::vector<Eigen::Vector3d>& vertices,
+                         const std::vector<std::array<uint32_t, 3>>& triangles,
+                         const Eigen::Vector3d& position = Eigen::Vector3d::Zero(),
+                         const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity()) {
+        Obstacle o;
+        o.type = kMesh;
+        o.vertices = vertices;
+        o.triangles = triangles;
+        o.position = position;
+        o.orientation = orientation;
         return o;
     }
 

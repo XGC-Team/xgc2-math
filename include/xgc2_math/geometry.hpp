@@ -10,7 +10,6 @@
 #include "xgc2_math/geometry/occupied_sets/ball_inflated_set.h"
 #include "xgc2_math/geometry/occupied_sets/box_set.h"
 #include "xgc2_math/geometry/occupied_sets/capsule_set.h"
-#include "xgc2_math/geometry/occupied_sets/convex_body.h"
 #include "xgc2_math/geometry/occupied_sets/convex_set_base.h"
 #include "xgc2_math/geometry/occupied_sets/cylinder_set.h"
 #include "xgc2_math/geometry/occupied_sets/ellipsoid_set.h"
@@ -22,3 +21,5 @@
 #include "xgc2_math/geometry/sdlp.hpp"
 #include "xgc2_math/geometry/se2.hpp"
 #include "xgc2_math/geometry/se3.hpp"
+
+#include "xgc2_math/geometry/geometry_payload.hpp"

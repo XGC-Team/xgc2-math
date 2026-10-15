@@ -1,0 +1,10 @@
+// name, stable wire number, scalar fields (f64); array layouts are codec-defined.
+XGC2_GEOMETRY(Box, box, 1, "size[3]")
+XGC2_GEOMETRY(Sphere, sphere, 2, "radius")
+XGC2_GEOMETRY(Cylinder, cylinder, 3, "radius,height")
+XGC2_GEOMETRY(Capsule, capsule, 4, "radius,height")
+XGC2_GEOMETRY(Convex, convex, 5, "vertices,triangles")
+XGC2_GEOMETRY(Ring, ring, 6, "radii[2],tubeRadius")
+XGC2_GEOMETRY(Halfspaces, halfspaces, 7, "halfspaces")
+XGC2_GEOMETRY(Ellipsoid, ellipsoid, 8, "semiaxes[3]")
+XGC2_GEOMETRY(Mesh, mesh, 9, "vertices,triangles")

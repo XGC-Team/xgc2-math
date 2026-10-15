@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${script_dir}/smoke_test_geometry_installed.sh"
+
 dpkg -s libxgc2-math-dev >/dev/null
 dpkg -s libxgc2-math-algebra-dev >/dev/null
 dpkg -s libxgc2-math-utils-dev >/dev/null

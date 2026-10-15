@@ -27,7 +27,6 @@
 namespace {
 
 using namespace xgc2_math::scene;
-using xgc2_math::ConvexBody;
 using xgc2_math::Pose3;
 
 constexpr std::uint64_t kSeed = 0x58474332434f4eULL;
@@ -122,255 +121,88 @@ std::vector<Eigen::Vector3d> prism() {
 
 // Scene document: a box, a cylinder, a sphere, a convex prism and a two-post gate (one obstacle, two parts) with an
 // open middle.
+using xgc2_math::geometry::encodeGeometry;
+using xgc2_math::geometry::Geometry;
 std::vector<SceneObstacleDescription> documentScene() {
-    std::vector<SceneObstacleDescription> scene;
-    const auto part = [](const std::string& type, const Pose3& p) {
-        ScenePartDescription d;
-        d.type = type;
-        d.pose = p;
-        return d;
-    };
-    {
-        SceneObstacleDescription o{"box", pose(6.0, 0.0, 1.0, 0.3), {}};
-        auto p = part("box", pose(0, 0, 0));
-        p.size = Eigen::Vector3d(1.0, 2.0, 2.0);
-        o.parts.push_back(p);
-        scene.push_back(o);
-    }
-    {
-        SceneObstacleDescription o{"pillar", pose(0.0, 5.0, 1.5), {}};
-        auto p = part("cylinder", pose(0, 0, 0));
-        p.radius = 0.4;
-        p.height = 3.0;
-        o.parts.push_back(p);
-        scene.push_back(o);
-    }
-    {
-        SceneObstacleDescription o{"ball", pose(-4.0, -3.0, 1.0), {}};
-        auto p = part("sphere", pose(0, 0, 0));
-        p.radius = 0.7;
-        o.parts.push_back(p);
-        scene.push_back(o);
-    }
-    {
-        SceneObstacleDescription o{"rock", pose(-5.0, 2.0, 0.0, -0.7), {}};
-        auto p = part("convex", pose(0, 0, 0));
-        p.vertices = prism();
-        o.parts.push_back(p);
-        scene.push_back(o);
-    }
-    {
-        SceneObstacleDescription o{"gate", pose(0.0, -6.0, 0.0, 0.2), {}};
-        for (const double y : {-1.0, 1.0}) {
-            auto p = part("box", pose(0.0, y, 1.0));
-            p.size = Eigen::Vector3d(0.3, 0.3, 2.0);
-            o.parts.push_back(p);
-        }
-        scene.push_back(o);
-    }
-    {
-        SceneObstacleDescription o{"post", pose(3.0, 3.0, 0.0), {}};
-        auto p = part("capsule", pose(0, 0, 1.0));
-        p.radius = 0.25;
-        p.height = 1.5;
-        o.parts.push_back(p);
-        scene.push_back(o);
-    }
-    return scene;
+    const auto convex = [] {
+        std::vector<xgc2_math::geometry::GeometryVertex> v;
+        for (const auto& p : prism())
+            v.push_back({p.x(), p.y(), p.z()});
+        return Geometry::convex(v);
+    }();
+    return {{pose(6, 0, 1, .3), {{encodeGeometry(Geometry::box({1, 2, 2})), pose(0, 0, 0)}}},
+            {pose(0, 5, 1.5), {{encodeGeometry(Geometry::cylinder(.4, 3)), pose(0, 0, 0)}}},
+            {pose(-4, -3, 1), {{encodeGeometry(Geometry::sphere(.7)), pose(0, 0, 0)}}},
+            {pose(-5, 2, 0, -.7), {{encodeGeometry(convex), pose(0, 0, 0)}}},
+            {pose(0, -6, 0, .2),
+             {{encodeGeometry(Geometry::box({.3, .3, 2})), pose(0, -1, 1)},
+              {encodeGeometry(Geometry::box({.3, .3, 2})), pose(0, 1, 1)}}},
+            {pose(3, 3, 0), {{encodeGeometry(Geometry::capsule(.25, 1.5)), pose(0, 0, 1)}}}};
 }
-
-// What the Gazebo scene plugin publishes for the same materialized scene: one instance per part at world pose
-// obstacle * part; cube scale = size, cylinder (r, r, full height), sphere (r, r, r), capsule (r, r, full length), a
-// collision mesh as a library template of support points with the collision scale.
-void gazeboTruth(std::vector<GeometryTemplateDescription>* library, std::vector<ConvexBodyDescription>* bodies) {
-    const std::string mesh = "convex_mesh:file:///tmp/scene/rock.stl";
-    GeometryTemplateDescription t;
-    t.type = mesh;
-    const Eigen::Vector3d mesh_scale(2.0, 2.0, 0.5);
-    for (const auto& v : prism()) {
-        t.support_points.emplace_back(v.cwiseQuotient(mesh_scale));
-    }
-    library->push_back(t);
-    for (const auto& o : documentScene()) {
-        for (std::size_t i = 0; i < o.parts.size(); ++i) {
-            const auto& part = o.parts[i];
-            ConvexBodyDescription b;
-            b.name = o.parts.size() == 1 ? o.id : o.id + "/" + std::to_string(i);
-            b.pose = place(o.pose, part.pose);
-            if (part.type == "box") {
-                b.geometry_type = "cube";
-                b.scale = part.size;
-            } else if (part.type == "cylinder") {
-                b.geometry_type = "cylinder";
-                b.scale = Eigen::Vector3d(part.radius, part.radius, part.height);
-            } else if (part.type == "sphere") {
-                b.geometry_type = "sphere";
-                b.scale = Eigen::Vector3d::Constant(part.radius);
-            } else if (part.type == "capsule") {
-                b.geometry_type = "capsule";
-                b.scale = Eigen::Vector3d(part.radius, part.radius, part.height + 2.0 * part.radius);
-            } else {
-                b.geometry_type = mesh;
-                b.scale = mesh_scale;
-            }
-            bodies->push_back(b);
-        }
-    }
-}
-
 void documentConversion() {
-    // obstacle pose * part pose; the interior point of a convex part is ignored.
     SceneObstacleDescription o;
-    o.id = "wall";
     o.pose = pose(0, 0, 1, kPi / 2);
-    ScenePartDescription part;
-    part.type = "box";
-    part.pose.position = Eigen::Vector3d(4, 0, 0); // -> world (0, 4, 1)
-    part.size = Eigen::Vector3d(1, 2, 2);          // rotated: 2 wide in x, 1 deep in y
+    ScenePartDescription part{encodeGeometry(Geometry::box({1, 2, 2})), pose(4, 0, 0)};
     o.parts.push_back(part);
-    ScenePartDescription convex_part;
-    convex_part.type = "convex";
-    convex_part.pose.position = Eigen::Vector3d(0, 0, 5);
-    convex_part.vertices = {{-0.45, -0.40, -0.50}, {0.50, -0.35, -0.50}, {0.45, 0.48, -0.50},
-                            {-0.38, 0.42, -0.50},  {-0.25, -0.15, 0.80}, {0.30, -0.20, 0.75},
-                            {0.28, 0.25, 0.85},    {-0.22, 0.30, 0.70},  {0.0, 0.0, 0.0}};
-    o.parts.push_back(convex_part);
-    const std::vector<Obstacle> obstacles = toObstacles({o});
-    require(obstacles.size() == 2, "one obstacle per part");
-    require(obstacles[0].type == Obstacle::kBox && obstacles[1].type == Obstacle::kConvex, "part types");
-    vectorNear(obstacles[0].position, Eigen::Vector3d(0, 4, 1), 1e-12, "part position is obstacle * part");
+    auto result = toObstacles({o});
+    require(result.size() == 1 && result[0].type == Obstacle::kBox, "one numerical shape per part");
+    vectorNear(result[0].position, {0, 4, 1}, 1e-12, "composed part position");
     WorldLidar lidar(SensorConfig{});
-    lidar.setScene(obstacles);
-    near(lidar.castRay({0, 0, 1}, Eigen::Vector3d::UnitY(), 20), 3.5, 1e-9, "box front face");
-    near(lidar.castRay({0.9, 0, 1}, Eigen::Vector3d::UnitY(), 20), 3.5, 1e-9, "box front face off centre");
-    require(std::isinf(lidar.castRay({1.1, 0, 1}, Eigen::Vector3d::UnitY(), 20)), "beside the box");
-    // Rock centre at world z = 1 + 5; its bottom face (part-local z = -0.5) at z = 5.5.
-    near(lidar.castRay({0, 0, 0}, Eigen::Vector3d::UnitZ(), 20), 5.5, 1e-9, "rock bottom face");
-    // A non-unit orientation is normalised; refusals name the obstacle and the part.
-    SceneObstacleDescription scaled = o;
-    scaled.parts = {part};
-    scaled.pose.orientation.coeffs() *= 4.0;
-    vectorNear(toObstacles({scaled})[0].position, Eigen::Vector3d(0, 4, 1), 1e-12,
-               "a scaled orientation is normalised");
-    const auto bad = [&](auto&& edit) {
-        SceneObstacleDescription b = o;
-        b.parts = {part};
-        edit(&b);
-        return refusal([&] {
-            toObstacles({b});
-        });
-    };
-    require(bad([](SceneObstacleDescription* b) {
-                b->parts[0].type = "mesh";
-            }) == "obstacle 'wall' part 0: unknown geometry type 'mesh'",
-            "unknown type");
-    require(bad([](SceneObstacleDescription* b) {
-                b->parts[0].size.x() = 0.0;
-            }) == "obstacle 'wall' part 0: invalid box size",
-            "zero size");
-    require(bad([](SceneObstacleDescription* b) {
-                b->parts[0].type = "convex";
-                b->parts[0].vertices = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {1, 1, 0}};
-            }) == "obstacle 'wall' part 0: convex obstacle is flat",
-            "flat convex part");
-    require(bad([](SceneObstacleDescription* b) {
-                b->parts[0].pose.orientation = Eigen::Quaterniond(0, 0, 0, 0);
-            }) == "obstacle 'wall' part 0: invalid orientation",
-            "zero part orientation");
-    require(bad([](SceneObstacleDescription* b) {
-                b->pose.orientation = Eigen::Quaterniond(kNaN, 0, 0, 0);
-            }) == "obstacle 'wall' part 0: invalid orientation",
-            "NaN obstacle orientation");
-    require(toObstacles({}).empty(), "an empty document");
-}
-
-void gazeboConversion() {
-    std::vector<GeometryTemplateDescription> library;
-    const ConvexBodyDescription cube{"c", "cube", pose(1, 2, 3), Eigen::Vector3d(1, 2, 4)};
-    const auto boxes = fromConvexBodies(library, {cube});
-    require(boxes.size() == 1 && boxes[0].type == Obstacle::kBox, "cube is a box");
-    vectorNear(boxes[0].size, Eigen::Vector3d(1, 2, 4), 1e-12, "cube size");
-    vectorNear(boxes[0].position, Eigen::Vector3d(1, 2, 3), 1e-12, "cube position");
-
-    const ConvexBodyDescription cylinder{"y", "cylinder", pose(0, 0, 0), Eigen::Vector3d(0.5, 0.5, 3.0)};
-    const auto cylinders = fromConvexBodies(library, {cylinder});
-    require(cylinders[0].type == Obstacle::kCylinder && cylinders[0].radius == 0.5 && cylinders[0].height == 3.0,
-            "cylinder radius and full height");
-    const ConvexBodyDescription ball{"s", "sphere", pose(0, 0, 0), Eigen::Vector3d::Constant(0.25)};
-    require(fromConvexBodies(library, {ball})[0].radius == 0.25, "sphere radius");
-    // The length of a capsule body counts its caps, the height of a capsule obstacle does not.
-    const ConvexBodyDescription pill{"p", "capsule", pose(0, 0, 0), Eigen::Vector3d(0.25, 0.25, 2.0)};
-    const auto pills = fromConvexBodies(library, {pill});
-    require(pills[0].type == Obstacle::kCapsule && pills[0].radius == 0.25 && std::abs(pills[0].height - 1.5) < 1e-15,
-            "capsule radius and straight height");
-    const ConvexBodyDescription stubby{"q", "capsule", pose(0, 0, 0), Eigen::Vector3d(0.5, 0.5, 0.5)};
-    require(fromConvexBodies(library, {stubby})[0].height == 0.0, "a capsule shorter than its caps is a sphere");
-
-    const auto unknown = refusal([&] {
-        fromConvexBodies(
-            library, {ConvexBodyDescription{"mystery", "convex_mesh:missing", pose(0, 0, 0), Eigen::Vector3d::Ones()}});
-    });
-    require(unknown == "convex body 'mystery': no geometry template 'convex_mesh:missing'",
-            "missing template: " + unknown);
+    lidar.setScene(result);
+    near(lidar.castRay({0, 0, 1}, Eigen::Vector3d::UnitY(), 20), 3.5, 1e-9, "rotated box ray");
+    o.pose.orientation.coeffs() *= 4;
+    vectorNear(toObstacles({o})[0].position, {0, 4, 1}, 1e-12, "normalized quaternion");
+    o.parts[0].geometry.type = 42;
     require(refuses(
                 [&] {
-                    fromConvexBodies(library, {ConvexBodyDescription{"flat", "cube", pose(0, 0, 0), {1, 0, 1}}});
+                    toObstacles({o});
                 },
-                "scale"),
-            "flat scale");
+                "unknown geometry"),
+            "unknown payload type");
+    o.parts[0] = part;
+    o.parts[0].pose.orientation = Eigen::Quaterniond(0, 0, 0, 0);
     require(refuses(
                 [&] {
-                    fromConvexBodies(library, {ConvexBodyDescription{"nan", "cube", pose(0, 0, 0), {1, kNaN, 1}}});
-                },
-                "scale must be positive and finite"),
-            "NaN scale");
-    ConvexBodyDescription bad_q = cube;
-    bad_q.pose.orientation = Eigen::Quaterniond(0, 0, 0, 0);
-    require(refuses(
-                [&] {
-                    fromConvexBodies(library, {bad_q});
+                    toObstacles({o});
                 },
                 "orientation"),
-            "zero orientation");
-    ConvexBodyDescription bad_p = cube;
-    bad_p.pose.position.x() = kInf;
+            "invalid orientation");
+    require(toObstacles({}).empty(), "empty numerical input");
+}
+void gazeboConversion() {
+    const auto box = obstacleFromGeometry(encodeGeometry(Geometry::box({1, 2, 4})), {1, 2, 3});
+    vectorNear(box.size, {1, 2, 4}, 1e-12, "full size");
+    vectorNear(box.position, {1, 2, 3}, 1e-12, "position");
+    const auto cylinder = obstacleFromGeometry(encodeGeometry(Geometry::cylinder(.5, 3)));
+    require(cylinder.radius == .5 && cylinder.height == 3, "full cylinder height");
+    const auto capsule = obstacleFromGeometry(encodeGeometry(Geometry::capsule(.25, 1.5)));
+    require(capsule.radius == .25 && capsule.height == 1.5, "straight capsule height");
+    const auto sphere = obstacleFromGeometry(encodeGeometry(Geometry::sphere(.25)));
+    require(sphere.radius == .25, "sphere radius");
     require(refuses(
                 [&] {
-                    fromConvexBodies(library, {bad_p});
+                    obstacleFromGeometry(encodeGeometry(Geometry::sphere(1)), {kInf, 0, 0});
                 },
-                "invalid position"),
-            "infinite position");
-    const GeometryTemplateDescription degenerate{"convex_mesh:flat", {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}}};
-    const ConvexBodyDescription flat_mesh{"sheet", "convex_mesh:flat", pose(0, 0, 0), Eigen::Vector3d::Ones()};
+                "position"),
+            "invalid position");
     require(refuses(
                 [&] {
-                    fromConvexBodies({degenerate}, {flat_mesh});
+                    obstacleFromGeometry(encodeGeometry(Geometry::sphere(1)), {}, Eigen::Quaterniond(0, 0, 0, 0));
                 },
-                "convex body 'sheet'"),
-            "degenerate template");
-    // The last template of a type wins.
-    GeometryTemplateDescription big{
-        "box_like",
-        {{-1, -1, -1}, {1, -1, -1}, {1, 1, -1}, {-1, 1, -1}, {-1, -1, 1}, {1, -1, 1}, {1, 1, 1}, {-1, 1, 1}}};
-    GeometryTemplateDescription small = big;
-    std::transform(small.support_points.begin(), small.support_points.end(), small.support_points.begin(),
-                   [](const Eigen::Vector3d& v) {
-                       return Eigen::Vector3d(0.5 * v);
-                   });
-    const ConvexBodyDescription like{"x", "box_like", pose(0, 0, 0), Eigen::Vector3d::Ones()};
-    WorldLidar lidar(SensorConfig{});
-    lidar.setScene(fromConvexBodies({big, small}, {like}));
-    near(lidar.castRay({-5, 0, 0}, Eigen::Vector3d::UnitX(), 20), 4.5, 1e-9, "the later template is used");
+                "orientation"),
+            "invalid quaternion");
 }
 
 void sameScansFromBothSources() {
     // The same toy scene described once as a scene document and once as the Gazebo obstacle truth gives the same
     // solids, hence the same scans.
     const std::vector<Obstacle> from_document = toObstacles(documentScene());
-    std::vector<GeometryTemplateDescription> library;
-    std::vector<ConvexBodyDescription> bodies;
-    gazeboTruth(&library, &bodies);
-    const std::vector<Obstacle> from_gazebo = fromConvexBodies(library, bodies);
+    std::vector<Obstacle> from_gazebo;
+    for (const auto& o : documentScene())
+        for (const auto& p : o.parts) {
+            const auto world = place(o.pose, p.pose);
+            from_gazebo.push_back(obstacleFromGeometry(p.geometry, world.position, world.orientation));
+        }
     require(from_document.size() == 7, "seven solids in the document");
     require(from_gazebo.size() == from_document.size(), "as many from Gazebo");
     const std::vector<Pose3> sensors = {pose(0, 0, 1.0), pose(1.5, -2.0, 1.2, 0.8), pose(-2.0, 1.0, 0.5, -2.0)};
@@ -1148,10 +980,8 @@ void occupiedSets() {
 
 ClutteredObstacle primitive(ClutteredObstacle::Kind kind, const std::string& type, const Eigen::Vector3d& scale) {
     ClutteredObstacle o;
-    o.id = 7;
-    o.name = "obstacle_7";
     o.kind = kind;
-    o.geometry_type = type;
+    (void)type;
     o.position = Eigen::Vector3d(1.0, -2.0, 0.5);
     o.orientation = Eigen::Quaterniond(Eigen::AngleAxisd(0.7, Eigen::Vector3d(1, 1, 0).normalized()));
     o.scale = scale;
@@ -1278,26 +1108,24 @@ void clutteredBodies() {
     for (int i = 0; i < 50; ++i) {
         const Eigen::Vector3d d = cases.vector3().normalized();
         const Eigen::Vector3d local = sphere.orientation.conjugate() * d;
-        near(occupiedBody(sphere).support(d).support_value, sphere.position.dot(d) + 0.7, 1e-12, "sphere support");
+        near(occupiedSet(toObstacle(sphere))->support(d).support_value, sphere.position.dot(d) + 0.7, 1e-12,
+             "sphere support");
         const double radial = std::hypot(local.x(), local.y());
-        near(occupiedBody(cylinder).support(d).support_value,
+        near(occupiedSet(toObstacle(cylinder))->support(d).support_value,
              cylinder.position.dot(d) + 0.5 * radial + 1.0 * std::abs(local.z()), 1e-12, "cylinder support");
         // a capsule of length 2 and radius 0.4 has caps at +-0.6
-        near(occupiedBody(capsule).support(d).support_value, capsule.position.dot(d) + 0.4 + 0.6 * std::abs(local.z()),
-             1e-12, "capsule support");
-        near(occupiedBody(cube).support(d).support_value,
+        near(occupiedSet(toObstacle(capsule))->support(d).support_value,
+             capsule.position.dot(d) + 0.4 + 0.6 * std::abs(local.z()), 1e-12, "capsule support");
+        near(occupiedSet(toObstacle(cube))->support(d).support_value,
              cube.position.dot(d) + 0.5 * std::abs(local.x()) + 1.0 * std::abs(local.y()) + 1.5 * std::abs(local.z()),
              1e-12, "cube support");
     }
-    const ConvexBody body = occupiedBody(cube);
-    require(body.id == 7 && body.name == "obstacle_7" && body.geometry_type == "cube" &&
-                body.velocity == cube.velocity && body.scale == cube.scale && body.position == cube.position &&
-                body.isRegistered(),
-            "body metadata");
+    vectorNear(occupiedSet(toObstacle(cube))->center(), cube.position, 1e-12, "numeric occupied set center");
+
     // The same obstacle as a solid for ray casting has the same support function, so the two views agree.
     for (const ClutteredObstacle& o : {sphere, cylinder, capsule, cube, cubePolytope(0.8), pyramid(), rock(1.2)}) {
         const ClutteredObstacle fixed = vertexForm(o);
-        const ConvexBody set = occupiedBody(fixed);
+        const auto set = occupiedSet(toObstacle(fixed));
         const Obstacle solid = toObstacle(fixed);
         // support function of the solid: a lidar scene's samples are on its surface, so the maximum over a dense sample
         // set approaches the support value from below
@@ -1308,10 +1136,10 @@ void clutteredBodies() {
             for (const Eigen::Vector3d& p : samples) {
                 best = std::max(best, p.dot(d));
             }
-            const double support = set.support(d).support_value;
-            require(best <= support + 1e-9 && best >= support - 0.06, "support of " + o.geometry_type +
-                                                                          ": samples reach " + std::to_string(best) +
-                                                                          " of " + std::to_string(support));
+            const double support = set->support(d).support_value;
+            require(best <= support + 1e-9 && best >= support - 0.06,
+                    "support of numerical kind " + std::to_string(o.kind) + ": samples reach " + std::to_string(best) +
+                        " of " + std::to_string(support));
         }
     }
     // Capsule: the obstacle's straight height is the whole length less its caps.
@@ -1324,8 +1152,9 @@ void clutteredBodies() {
     // A moving obstacle: the body follows the pose.
     ClutteredObstacle moving = rock(1.0);
     moving.position += Eigen::Vector3d(5, 0, 0);
-    const ConvexBody before = occupiedBody(rock(1.0)), after = occupiedBody(moving);
-    near(after.support(Eigen::Vector3d::UnitX()).support_value - before.support(Eigen::Vector3d::UnitX()).support_value,
+    const auto before = occupiedSet(toObstacle(rock(1.0))), after = occupiedSet(toObstacle(moving));
+    near(after->support(Eigen::Vector3d::UnitX()).support_value -
+             before->support(Eigen::Vector3d::UnitX()).support_value,
          5.0, 1e-12, "the body moves with the pose");
 }
 
@@ -1363,21 +1192,15 @@ void clutteredTemplates() {
 
 void clutteredCubeFrame() {
     CubeFrame frame;
-    frame.start_id = 20;
-    frame.name_prefix = "gate";
     frame.center = Eigen::Vector3d(5, 6, 1);
     frame.yaw = kPi / 2;
     frame.width = 2.0;
     frame.height = 3.0;
     frame.rod_thickness = 0.2;
-    frame.dynamic = true;
     const std::vector<ClutteredObstacle> cubes = expandCubeFrame(frame);
     require(cubes.size() == 4, "four cubes");
-    const char* names[] = {"gate_left_side", "gate_right_side", "gate_top_edge", "gate_bottom_edge"};
     for (std::size_t i = 0; i < 4; ++i) {
-        require(cubes[i].id == 20 + static_cast<int>(i) && cubes[i].name == names[i] &&
-                    cubes[i].kind == ClutteredObstacle::kCube && cubes[i].geometry_type == "cube" && cubes[i].dynamic,
-                "cube " + std::to_string(i));
+        require(cubes[i].kind == ClutteredObstacle::kCube, "numerical cube kind");
         near((cubes[i].orientation.coeffs() - Eigen::Quaterniond(std::cos(kPi / 4), 0, 0, std::sin(kPi / 4)).coeffs())
                  .norm(),
              0.0, 1e-15, "frame orientation");
@@ -1404,14 +1227,7 @@ void clutteredCubeFrame() {
     near(lidar.castRay({0, 7, 1}, Eigen::Vector3d::UnitX(), 20), 4.9, 1e-12, "the right post");
     near(lidar.castRay({0, 5, 1}, Eigen::Vector3d::UnitX(), 20), 4.9, 1e-12, "the left post");
     CubeFrame bad;
-    bad.start_id = -1;
-    require(refuses(
-                [&] {
-                    expandCubeFrame(bad);
-                },
-                "nonnegative start_id"),
-            "negative id");
-    bad.start_id = 0;
+
     bad.width = 0.0;
     require(refuses(
                 [&] {

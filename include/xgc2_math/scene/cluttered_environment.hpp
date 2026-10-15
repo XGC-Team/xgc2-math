@@ -27,7 +27,6 @@
 #include "xgc2_math/geometry/geo_utils.hpp"
 #include "xgc2_math/geometry/occupied_sets/box_set.h"
 #include "xgc2_math/geometry/occupied_sets/capsule_set.h"
-#include "xgc2_math/geometry/occupied_sets/convex_body.h"
 #include "xgc2_math/geometry/occupied_sets/cylinder_set.h"
 #include "xgc2_math/geometry/occupied_sets/point_set.h"
 #include "xgc2_math/geometry/occupied_sets/sphere_set.h"
@@ -40,13 +39,7 @@ namespace xgc2_math::scene {
 struct ClutteredObstacle {
     enum Kind { kSphere, kCylinder, kCapsule, kCube, kHPolytope, kVPolytope };
 
-    int id = 0;
-    std::string name;
     Kind kind = kSphere;
-    // Key of the geometry library: "sphere", "cylinder", "capsule", "cube", or "h_polytope:<template>" /
-    // "v_polytope:<template>" ("...:inline:<id>" for a polytope given in the obstacle itself).
-    std::string geometry_type;
-    bool dynamic = false; // moves (velocity obstacle) instead of staying put
     Eigen::Vector3d position = Eigen::Vector3d::Zero();
     Eigen::Quaterniond orientation = Eigen::Quaterniond::Identity();
     Eigen::Vector3d scale = Eigen::Vector3d::Ones();
@@ -69,14 +62,12 @@ inline std::vector<Eigen::Vector3d> polytopeVertices(const ClutteredObstacle& ob
     if (obstacle.kind == ClutteredObstacle::kHPolytope) {
         if (obstacle.h_matrix.cols() != 4 ||
             obstacle.h_matrix.rows() < static_cast<Eigen::Index>(detail::kMinHullVertices)) {
-            throw std::invalid_argument("H-polytope obstacle " + std::to_string(obstacle.id) +
-                                        ": need at least 4 valid H-rows, got " +
+            throw std::invalid_argument("H-polytope: need at least 4 valid H-rows, got " +
                                         std::to_string(obstacle.h_matrix.rows()));
         }
         Eigen::Matrix3Xd enumerated;
         if (!geo_utils::enumerateVs(obstacle.h_matrix, enumerated, obstacle.epsilon)) {
-            throw std::invalid_argument("Failed to enumerate vertices from H-representation for obstacle " +
-                                        std::to_string(obstacle.id));
+            throw std::invalid_argument("Failed to enumerate vertices from H-representation");
         }
         vertices.reserve(static_cast<std::size_t>(enumerated.cols()));
         for (Eigen::Index i = 0; i < enumerated.cols(); ++i) {
@@ -85,17 +76,17 @@ inline std::vector<Eigen::Vector3d> polytopeVertices(const ClutteredObstacle& ob
     } else if (obstacle.kind == ClutteredObstacle::kVPolytope) {
         vertices = obstacle.vertices;
     } else {
-        throw std::invalid_argument("obstacle " + std::to_string(obstacle.id) + " is not a polytope");
+        throw std::invalid_argument("shape is not a polytope");
     }
     if (vertices.size() < detail::kMinHullVertices) {
-        throw std::invalid_argument("polytope obstacle " + std::to_string(obstacle.id) +
-                                    ": need at least 4 vertices for 3D hull, got " + std::to_string(vertices.size()));
+        throw std::invalid_argument("polytope: need at least 4 vertices for 3D hull, got " +
+                                    std::to_string(vertices.size()));
     }
     return vertices;
 }
 
 // A polytope obstacle in vertex form: an H-polytope becomes the V-polytope of its enumerated vertices, so that repeated
-// calls of occupiedBody(), toObstacle() or polytopeMesh() (a moving obstacle needs one per update) do not enumerate
+// calls of toObstacle() or polytopeMesh() (a moving obstacle needs one per update) do not enumerate
 // again. Other obstacles are returned unchanged.
 inline ClutteredObstacle vertexForm(const ClutteredObstacle& obstacle) {
     ClutteredObstacle converted = obstacle;
@@ -105,43 +96,6 @@ inline ClutteredObstacle vertexForm(const ClutteredObstacle& obstacle) {
         converted.h_matrix.resize(0, 4);
     }
     return converted;
-}
-
-// The occupied set of the obstacle in the world frame, for collision queries such as the GJK distance. Polytopes
-// become a support-point set of the scaled and rotated vertices around the position.
-inline ConvexBody occupiedBody(const ClutteredObstacle& obstacle) {
-    ConvexBody body;
-    body.id = obstacle.id;
-    body.name = obstacle.name;
-    body.geometry_type = obstacle.geometry_type;
-    body.position = obstacle.position;
-    body.orientation = obstacle.orientation.normalized();
-    body.scale = obstacle.scale;
-    body.velocity = obstacle.velocity;
-    switch (obstacle.kind) {
-    case ClutteredObstacle::kSphere:
-        body.shape = std::make_shared<SphereSet>(body.position, body.scale.x());
-        break;
-    case ClutteredObstacle::kCylinder:
-        body.shape = std::make_shared<CylinderSet>(body.position, body.scale.x(), body.scale.z(), body.orientation);
-        break;
-    case ClutteredObstacle::kCapsule:
-        body.shape = std::make_shared<CapsuleSet>(body.position, body.scale.x(), body.scale.z(), body.orientation);
-        break;
-    case ClutteredObstacle::kCube:
-        body.shape = std::make_shared<BoxSet>(body.position, body.scale, body.orientation);
-        break;
-    case ClutteredObstacle::kHPolytope:
-    case ClutteredObstacle::kVPolytope: {
-        std::vector<Eigen::Vector3d> offsets = polytopeVertices(obstacle);
-        for (auto& offset : offsets) {
-            offset = body.orientation * offset.cwiseProduct(body.scale);
-        }
-        body.shape = std::make_shared<SupportPointSet>(body.position, std::move(offsets));
-        break;
-    }
-    }
-    return body;
 }
 
 // The obstacle as a solid for ray casting. A capsule's length is that of the whole capsule, a scene capsule's height
@@ -211,12 +165,8 @@ inline ConvexMesh polytopeMesh(const ClutteredObstacle& obstacle) {
 }
 
 // A frame of four cubes (two posts, a top and a bottom edge) in the plane through `center` turned by `yaw` about +z,
-// `width` wide between the post axes and `height` tall between the edge axes, all `rod_thickness` thick. The cubes get
-// consecutive ids from `start_id`.
+// `width` wide between the post axes and `height` tall between the edge axes, all `rod_thickness` thick.
 struct CubeFrame {
-    int start_id = 0;
-    std::string name_prefix = "cube_frame";
-    bool dynamic = false;
     Eigen::Vector3d center = Eigen::Vector3d::Zero();
     double yaw = 0.0;
     double width = 2.0;
@@ -225,11 +175,8 @@ struct CubeFrame {
 };
 
 // The cubes of a frame: left_side, right_side, top_edge and bottom_edge. Throws std::invalid_argument for a negative
-// start id or a size that is not positive.
+// size that is not positive.
 inline std::vector<ClutteredObstacle> expandCubeFrame(const CubeFrame& frame) {
-    if (frame.start_id < 0) {
-        throw std::invalid_argument("cube_frame group requires nonnegative start_id");
-    }
     if (!(frame.width > 0.0 && frame.height > 0.0 && frame.rod_thickness > 0.0)) {
         throw std::invalid_argument("cube_frame width, height, and rod_thickness must be positive");
     }
@@ -237,27 +184,19 @@ inline std::vector<ClutteredObstacle> expandCubeFrame(const CubeFrame& frame) {
     const double half_width = 0.5 * frame.width;
     const double half_height = 0.5 * frame.height;
     const Eigen::Vector3d lateral(std::cos(frame.yaw), std::sin(frame.yaw), 0.0);
-    const auto cube = [&](int id, const std::string& suffix, const Eigen::Vector3d& position,
-                          const Eigen::Vector3d& scale) {
+    const auto cube = [&](const Eigen::Vector3d& position, const Eigen::Vector3d& scale) {
         ClutteredObstacle c;
-        c.id = id;
-        c.name = frame.name_prefix + "_" + suffix;
         c.kind = ClutteredObstacle::kCube;
-        c.geometry_type = "cube";
-        c.dynamic = frame.dynamic;
         c.position = position;
         c.orientation = orientation;
         c.scale = scale;
         return c;
     };
     const double t = frame.rod_thickness;
-    return {cube(frame.start_id, "left_side", frame.center - half_width * lateral, Eigen::Vector3d(t, t, frame.height)),
-            cube(frame.start_id + 1, "right_side", frame.center + half_width * lateral,
-                 Eigen::Vector3d(t, t, frame.height)),
-            cube(frame.start_id + 2, "top_edge", frame.center + Eigen::Vector3d(0.0, 0.0, half_height),
-                 Eigen::Vector3d(frame.width + t, t, t)),
-            cube(frame.start_id + 3, "bottom_edge", frame.center - Eigen::Vector3d(0.0, 0.0, half_height),
-                 Eigen::Vector3d(frame.width + t, t, t))};
+    return {cube(frame.center - half_width * lateral, Eigen::Vector3d(t, t, frame.height)),
+            cube(frame.center + half_width * lateral, Eigen::Vector3d(t, t, frame.height)),
+            cube(frame.center + Eigen::Vector3d(0.0, 0.0, half_height), Eigen::Vector3d(frame.width + t, t, t)),
+            cube(frame.center - Eigen::Vector3d(0.0, 0.0, half_height), Eigen::Vector3d(frame.width + t, t, t))};
 }
 
 } // namespace xgc2_math::scene

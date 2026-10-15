@@ -17,6 +17,7 @@
 #include "xgc2_math/scene/obstacle.hpp"
 #include "xgc2_math/scene/polytope.hpp"
 #include "xgc2_math/scene/surface_sampling.hpp"
+#include "xgc2_math/scene/triangle_mesh.hpp"
 
 namespace xgc2_math::scene {
 namespace detail {
@@ -120,6 +121,7 @@ struct ShapeCore {
     Obstacle::Type type = Obstacle::kBox;
     std::uint32_t plane_first = 0; // convex: planes [plane_first, plane_first + plane_count) of the table
     std::uint32_t plane_count = 0;
+    std::uint32_t mesh_first = 0, mesh_count = 0;
 };
 
 // The compiled shapes of a scene. Hot data (ShapeCore, planes, bounds) is kept in flat arrays indexed by shape;
@@ -180,6 +182,27 @@ class ShapeTable {
             s.params = Eigen::Vector3d(o.radius, 0.5 * o.height, 0.0);
             roundBounds(s, o.type, &box);
             break;
+        case Obstacle::kEllipsoid: {
+            for (int k = 0; k < 3; ++k)
+                positive(o.size[k], "ellipsoid semiaxis");
+            s.params = o.size;
+            Eigen::Vector3d extent;
+            for (int k = 0; k < 3; ++k)
+                extent[k] = s.rotation.row(k).transpose().cwiseProduct(s.params).norm();
+            box.lo = s.position - extent;
+            box.hi = s.position + extent;
+            break;
+        }
+        case Obstacle::kMesh: {
+            validateTriangleMesh(o.vertices, o.triangles);
+            s.mesh_first = static_cast<std::uint32_t>(mesh_triangles_.size());
+            s.mesh_count = static_cast<std::uint32_t>(o.triangles.size());
+            for (const auto& t : o.triangles)
+                mesh_triangles_.push_back({o.vertices[t[0]], o.vertices[t[1]], o.vertices[t[2]]});
+            for (const auto& v : o.vertices)
+                box.grow(s.position + s.rotation * v);
+            break;
+        }
         case Obstacle::kRing: {
             validateEllipticRing(o.radii, o.tubeRadius);
             s.params = Eigen::Vector3d(o.radii.x(), o.radii.y(), o.tubeRadius);
@@ -228,6 +251,12 @@ class ShapeTable {
                 face_vertices_.insert(face_vertices_.end(), begin, end);
             }
         }
+        if (s.type == Obstacle::kMesh) {
+            const auto first = s.mesh_first;
+            s.mesh_first = static_cast<std::uint32_t>(mesh_triangles_.size());
+            mesh_triangles_.insert(mesh_triangles_.end(), other.mesh_triangles_.begin() + first,
+                                   other.mesh_triangles_.begin() + first + s.mesh_count);
+        }
         core_.push_back(s);
         bounds_.push_back(other.bounds_[i]);
     }
@@ -238,8 +267,19 @@ class ShapeTable {
         const Eigen::Vector3d ol = s.rotation.transpose() * (o - s.position);
         const Eigen::Vector3d dl = s.rotation.transpose() * d;
         switch (s.type) {
+        case Obstacle::kMesh:
         case Obstacle::kRing:
-            throw std::invalid_argument("ring is nonconvex; use closestSurface, not a single line interval");
+            throw std::invalid_argument("nonconvex shape requires closestSurface rather than a single line interval");
+        case Obstacle::kEllipsoid: {
+            const Eigen::Vector3d a = ol.cwiseQuotient(s.params), b = dl.cwiseQuotient(s.params);
+            const double aa = b.squaredNorm(), ab = a.dot(b), c = a.squaredNorm() - 1, disc = ab * ab - aa * c;
+            if (disc < 0)
+                return false;
+            const double root = std::sqrt(disc);
+            *t0 = (-ab - root) / aa;
+            *t1 = (-ab + root) / aa;
+            return true;
+        }
         case Obstacle::kSphere:
             return sphereInterval(ol, dl, Eigen::Vector3d::Zero(), s.params.x(), t0, t1);
         case Obstacle::kCylinder:
@@ -309,6 +349,9 @@ class ShapeTable {
     // intersect a line in disjoint intervals and cannot use intersect().
     double closestSurface(std::size_t i, const Eigen::Vector3d& o, const Eigen::Vector3d& d, double maxRange) const {
         const auto& s = core_[i];
+        if (s.type == Obstacle::kMesh)
+            return meshRayClosest(mesh_triangles_.data() + s.mesh_first, s.mesh_count,
+                                  s.rotation.transpose() * (o - s.position), s.rotation.transpose() * d, maxRange);
         if (s.type == Obstacle::kRing)
             return ellipticRingRayClosest(s.rotation.transpose() * (o - s.position), s.rotation.transpose() * d,
                                           s.params.head<2>(), s.params.z(), maxRange);
@@ -324,6 +367,12 @@ class ShapeTable {
         const ShapeCore& s = core_[i];
         const Eigen::Vector3d q = s.rotation.transpose() * (world - s.position);
         switch (s.type) {
+        case Obstacle::kEllipsoid:
+            // Scaling the unit-sphere residual by the smallest singular value is a signed
+            // lower bound on Euclidean surface distance, as required by residual().
+            return (q.cwiseQuotient(s.params).norm() - 1) * s.params.minCoeff();
+        case Obstacle::kMesh:
+            return meshResidual(mesh_triangles_.data() + s.mesh_first, s.mesh_count, q);
         case Obstacle::kRing:
             return ellipticRingResidual(q, s.params.head<2>(), s.params.z());
         case Obstacle::kSphere:
@@ -358,6 +407,19 @@ class ShapeTable {
         const ShapeCore& s = core_[i];
         const std::size_t begin = out->size();
         switch (s.type) {
+        case Obstacle::kEllipsoid: {
+            const int n = sphereSampleCount(s.params.maxCoeff(), spacing);
+            for (int k = 0; k < n; ++k)
+                out->push_back(s.params.cwiseProduct(fibonacciPoint(k, n)));
+            break;
+        }
+        case Obstacle::kMesh:
+            for (std::uint32_t k = 0; k < s.mesh_count; ++k) {
+                const auto& t = mesh_triangles_[s.mesh_first + k];
+                const std::array<Eigen::Vector3d, 3> face{{t.a, t.b, t.c}};
+                appendPolygon(face.data(), face.size(), (t.b - t.a).cross(t.c - t.a).normalized(), spacing, cell, out);
+            }
+            break;
         case Obstacle::kRing: {
             const auto points = sampleEllipticRingSurface(s.params.head<2>(), s.params.z(), spacing);
             out->insert(out->end(), points.begin(), points.end());
@@ -454,6 +516,7 @@ class ShapeTable {
         return plane + 1 < face_first_.size() ? face_first_[plane + 1] : face_vertices_.size();
     }
 
+    std::vector<MeshTriangle> mesh_triangles_;
     std::vector<ShapeCore> core_;
     std::vector<Plane> planes_;                  // convex faces of every shape, shape by shape
     std::vector<std::size_t> face_first_;        // face of planes_[k]: face_vertices_[face_first_[k], faceEnd(k))

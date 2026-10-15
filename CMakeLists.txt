@@ -75,6 +75,18 @@ install(DIRECTORY matlab/
   DESTINATION ${CMAKE_INSTALL_DATADIR}/doc/libxgc2-math-dev/matlab
 )
 
+# Minimal generated bindings; Debian's normal Python import path under the install prefix.
+set(XGC2_MATH_PYTHON_INSTALL_DIR "lib/python3/dist-packages" CACHE STRING "Python bindings install directory")
+install(DIRECTORY bindings/python/xgc2_math DESTINATION ${XGC2_MATH_PYTHON_INSTALL_DIR}
+  FILES_MATCHING PATTERN "*.py")
+install(FILES bindings/typescript/geometry.ts bindings/typescript/geometry_registry.ts
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/xgc2_math/typescript)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_custom_target(generate_geometry_bindings
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_geometry_bindings.py)
+endif()
+
 configure_package_config_file(
   cmake/xgc2_mathConfig.cmake.in
   ${CMAKE_CURRENT_BINARY_DIR}/xgc2_mathConfig.cmake
@@ -189,6 +201,35 @@ if(XGC2_MATH_BUILD_TESTING)
     add_executable(scene_body_returns_test test/scene_body_returns_test.cpp)
     target_link_libraries(scene_body_returns_test PRIVATE xgc2_math::scene)
     add_test(NAME scene_body_returns COMMAND scene_body_returns_test)
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      add_executable(bench_prepared_geometry test/bench_prepared_geometry.cpp)
+      target_link_libraries(bench_prepared_geometry PRIVATE xgc2_math::scene "-Wl,--wrap=malloc,--wrap=free")
+    endif()
+    add_executable(prepared_geometry_test test/prepared_geometry_test.cpp)
+    target_link_libraries(prepared_geometry_test PRIVATE xgc2_math::scene)
+    target_compile_definitions(prepared_geometry_test PRIVATE EIGEN_RUNTIME_NO_MALLOC)
+    add_test(NAME prepared_geometry COMMAND prepared_geometry_test)
+
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME geometry_bindings_generated
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_geometry_bindings.py --check)
+    endif()
+    find_path(XGC2_MATH_JSON_INCLUDE_DIR nlohmann/json.hpp)
+    if(XGC2_MATH_JSON_INCLUDE_DIR)
+      add_executable(geometry_json_test test/geometry_json_test.cpp)
+      target_include_directories(geometry_json_test PRIVATE ${XGC2_MATH_JSON_INCLUDE_DIR})
+      target_link_libraries(geometry_json_test PRIVATE xgc2_math::geometry)
+      add_test(NAME geometry_json COMMAND geometry_json_test)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME geometry_bindings_python COMMAND ${Python3_EXECUTABLE}
+          ${CMAKE_CURRENT_SOURCE_DIR}/test/geometry_bindings_test.py $<TARGET_FILE:geometry_json_test>)
+      endif()
+    endif()
+
+    add_executable(geometry_payload_test test/geometry_payload_test.cpp)
+    target_link_libraries(geometry_payload_test PRIVATE xgc2_math::geometry)
+    add_test(NAME geometry_payload COMMAND geometry_payload_test)
 
     add_executable(scene_ring_test test/scene_ring_test.cpp)
     target_link_libraries(scene_ring_test PRIVATE xgc2_math::scene)
