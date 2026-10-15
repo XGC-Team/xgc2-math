@@ -132,11 +132,7 @@ class Bvh {
                     if (enter(box.lo.data(), box.hi.data(), std::min(best, tmax)) == kInf) {
                         continue;
                     }
-                    double t0, t1;
-                    if (!shapes.intersect(shape, o, d, &t0, &t1)) {
-                        continue;
-                    }
-                    const double t = t0 >= 0.0 ? t0 : t1;
+                    const double t = shapes.closestSurface(shape, o, d, std::min(tmax, best));
                     if (t >= 0.0 && t <= tmax && t < best) {
                         best = t;
                     }

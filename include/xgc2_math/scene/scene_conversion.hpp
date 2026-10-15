@@ -29,11 +29,13 @@ namespace xgc2_math::scene {
 // length; cylinder `height` is the full height along local z; capsule `height` is the straight part; convex `vertices`
 // are part-frame points (triangles are not needed, the solid is their convex hull).
 struct ScenePartDescription {
-    std::string type; // box | sphere | cylinder | capsule | convex
+    std::string type; // box | sphere | cylinder | capsule | convex | ring
     Pose3 pose;       // part frame in the obstacle frame
     Eigen::Vector3d size = Eigen::Vector3d::Zero();
     double radius = 0.0;
     double height = 0.0;
+    Eigen::Vector2d radii = Eigen::Vector2d::Zero();
+    double tubeRadius = 0.0;
     std::vector<Eigen::Vector3d> vertices;
 };
 
@@ -66,6 +68,9 @@ inline Obstacle partObstacle(const ScenePartDescription& part, const Eigen::Vect
     }
     if (part.type == "capsule") {
         return Obstacle::capsule(position, part.radius, part.height, orientation);
+    }
+    if (part.type == "ring") {
+        return Obstacle::ring(position, part.radii, part.tubeRadius, orientation);
     }
     if (part.type == "convex") {
         return Obstacle::convexHull(part.vertices, position, orientation);

@@ -174,7 +174,8 @@ class LidarScene {
             !sameBits(a.position.data(), b.position.data(), 3) ||
             !sameBits(a.orientation.coeffs().data(), b.orientation.coeffs().data(), 4) ||
             !sameBits(a.size.data(), b.size.data(), 3) || !sameBits(&a.radius, &b.radius, 1) ||
-            !sameBits(&a.height, &b.height, 1)) {
+            !sameBits(&a.height, &b.height, 1) || !sameBits(a.radii.data(), b.radii.data(), 2) ||
+            !sameBits(&a.tubeRadius, &b.tubeRadius, 1)) {
             return false;
         }
         for (std::size_t i = 0; i < a.vertices.size(); ++i) {

@@ -247,7 +247,7 @@ void obstacleValidation() {
                 "non-finite convex vertex"),
             "NaN vertex");
     Obstacle unknown;
-    unknown.type = static_cast<Obstacle::Type>(5); // the enumeration holds values up to 7
+    unknown.type = static_cast<Obstacle::Type>(7); // the enumeration holds values up to 7
     require(refuses(
                 [&] {
                     validateObstacle(unknown);

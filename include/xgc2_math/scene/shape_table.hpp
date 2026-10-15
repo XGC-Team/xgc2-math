@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "xgc2_math/scene/ellipse_ring.hpp"
 #include "xgc2_math/scene/obstacle.hpp"
 #include "xgc2_math/scene/polytope.hpp"
 #include "xgc2_math/scene/surface_sampling.hpp"
@@ -114,7 +115,7 @@ inline bool cylinderInterval(const Eigen::Vector3d& o, const Eigen::Vector3d& d,
 struct ShapeCore {
     Eigen::Matrix3d rotation = Eigen::Matrix3d::Identity(); // local -> world
     Eigen::Vector3d position = Eigen::Vector3d::Zero();     // world
-    // box: half extents; sphere: radius in x; cylinder and capsule: radius in x, half height in y.
+    // box: half extents; sphere: radius in x; cylinder/capsule: radius and half height; ring: a,b,tube radius.
     Eigen::Vector3d params = Eigen::Vector3d::Zero();
     Obstacle::Type type = Obstacle::kBox;
     std::uint32_t plane_first = 0; // convex: planes [plane_first, plane_first + plane_count) of the table
@@ -179,6 +180,17 @@ class ShapeTable {
             s.params = Eigen::Vector3d(o.radius, 0.5 * o.height, 0.0);
             roundBounds(s, o.type, &box);
             break;
+        case Obstacle::kRing: {
+            validateEllipticRing(o.radii, o.tubeRadius);
+            s.params = Eigen::Vector3d(o.radii.x(), o.radii.y(), o.tubeRadius);
+            Eigen::Vector3d extent;
+            for (int k = 0; k < 3; ++k)
+                extent[k] = std::hypot(o.radii.x() * s.rotation(k, 0),
+                                       o.radii.y() * s.rotation(k, 1)) + o.tubeRadius;
+            box.lo = s.position - extent;
+            box.hi = s.position + extent;
+            break;
+        }
         case Obstacle::kConvex: {
             const Polytope hull = buildPolytope(o.vertices);
             s.plane_first = static_cast<std::uint32_t>(planes_.size());
@@ -227,6 +239,8 @@ class ShapeTable {
         const Eigen::Vector3d ol = s.rotation.transpose() * (o - s.position);
         const Eigen::Vector3d dl = s.rotation.transpose() * d;
         switch (s.type) {
+        case Obstacle::kRing:
+            throw std::invalid_argument("ring is nonconvex; use closestSurface, not a single line interval");
         case Obstacle::kSphere:
             return sphereInterval(ol, dl, Eigen::Vector3d::Zero(), s.params.x(), t0, t1);
         case Obstacle::kCylinder:
@@ -292,11 +306,27 @@ class ShapeTable {
         return false;
     }
 
+    // Nearest forward boundary, including an inside origin's exit. Rings may
+    // intersect a line in disjoint intervals and cannot use intersect().
+    double closestSurface(std::size_t i, const Eigen::Vector3d& o, const Eigen::Vector3d& d,
+                          double maxRange) const {
+        const auto& s = core_[i];
+        if (s.type == Obstacle::kRing)
+            return ellipticRingRayClosest(s.rotation.transpose() * (o - s.position),
+                                          s.rotation.transpose() * d, s.params.head<2>(), s.params.z(), maxRange);
+        double lo, hi;
+        if (!intersect(i, o, d, &lo, &hi)) return kInf;
+        const double t = lo >= 0 ? lo : hi;
+        return t >= 0 && t <= maxRange ? t : kInf;
+    }
+
     // 0 on the surface of shape `i`, < 0 inside and > 0 outside; |value| is at most the distance to the surface.
     double residual(std::size_t i, const Eigen::Vector3d& world) const {
         const ShapeCore& s = core_[i];
         const Eigen::Vector3d q = s.rotation.transpose() * (world - s.position);
         switch (s.type) {
+        case Obstacle::kRing:
+            return ellipticRingResidual(q, s.params.head<2>(), s.params.z());
         case Obstacle::kSphere:
             return q.norm() - s.params.x();
         case Obstacle::kCylinder:
@@ -329,6 +359,11 @@ class ShapeTable {
         const ShapeCore& s = core_[i];
         const std::size_t begin = out->size();
         switch (s.type) {
+        case Obstacle::kRing: {
+            const auto points = sampleEllipticRingSurface(s.params.head<2>(), s.params.z(), spacing);
+            out->insert(out->end(), points.begin(), points.end());
+            break;
+        }
         case Obstacle::kBox:
             for (int axis = 0; axis < 3; ++axis) {
                 for (int sign = -1; sign <= 1; sign += 2) {

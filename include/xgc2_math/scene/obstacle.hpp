@@ -7,12 +7,12 @@
 
 namespace xgc2_math::scene {
 
-// A closed convex solid. Every shape is defined in its local frame and placed by (position, orientation), local ->
+// A closed solid (ring is nonconvex). Every shape is defined in its local frame and placed by (position, orientation), local ->
 // world. Conventions follow the scene geometry messages: box `size` is the full side length, cylinder `height`
 // is the full height along local z, capsule `height` is the straight cylindrical part along local z, convex `vertices`
 // are local-frame points whose convex hull is the solid.
 struct Obstacle {
-    enum Type { kBox, kSphere, kCylinder, kCapsule, kConvex };
+    enum Type { kBox, kSphere, kCylinder, kCapsule, kConvex, kRing };
 
     Type type = kBox;
     Eigen::Vector3d position = Eigen::Vector3d::Zero();
@@ -20,6 +20,8 @@ struct Obstacle {
     Eigen::Vector3d size = Eigen::Vector3d::Zero();
     double radius = 0.0;
     double height = 0.0;
+    Eigen::Vector2d radii = Eigen::Vector2d::Zero(); // ring: local X/Y ellipse semiaxes
+    double tubeRadius = 0.0; // ring: Euclidean circular tube radius
     std::vector<Eigen::Vector3d> vertices;
 
     static Obstacle box(const Eigen::Vector3d& center, const Eigen::Vector3d& size,
@@ -59,6 +61,17 @@ struct Obstacle {
                             const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity()) {
         Obstacle o = cylinder(center, radius, height, orientation);
         o.type = kCapsule;
+        return o;
+    }
+
+    static Obstacle ring(const Eigen::Vector3d& center, const Eigen::Vector2d& radii, double tubeRadius,
+                         const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity()) {
+        Obstacle o;
+        o.type = kRing;
+        o.position = center;
+        o.orientation = orientation;
+        o.radii = radii;
+        o.tubeRadius = tubeRadius;
         return o;
     }
 

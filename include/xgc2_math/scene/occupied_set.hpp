@@ -28,6 +28,8 @@ inline std::shared_ptr<const ConvexSet3D> occupiedSet(const Obstacle& obstacle) 
     validateObstacle(obstacle);
     const Eigen::Quaterniond q = obstacle.orientation.normalized();
     switch (obstacle.type) {
+    case Obstacle::kRing:
+        throw std::invalid_argument("ring is nonconvex and has no convex occupied-set representation");
     case Obstacle::kBox:
         return std::make_shared<BoxSet>(obstacle.position, obstacle.size, q);
     case Obstacle::kSphere:
