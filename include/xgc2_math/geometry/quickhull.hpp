@@ -1441,7 +1441,7 @@ template <typename T> class QuickHull {
                 newFace.m_he = AB;
 
                 m_mesh.m_halfEdges[CA].m_opp = m_newHalfEdgeIndices[i > 0 ? i * 2 - 1 : 2 * horizonEdgeCount - 1];
-                m_mesh.m_halfEdges[BC].m_opp = m_newHalfEdgeIndices[((i + 1) * 2) % (horizonEdgeCount * 2)];
+                m_mesh.m_halfEdges[BC].m_opp = m_newHalfEdgeIndices[i + 1 == horizonEdgeCount ? 0 : (i + 1) * 2];
             }
 
             // 将禁用面正侧的点分配给新面
