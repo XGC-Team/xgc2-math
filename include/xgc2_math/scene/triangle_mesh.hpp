@@ -7,10 +7,14 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
 namespace xgc2_math::scene {
+class TriangleMeshData;
+using TriangleMeshPtr = std::shared_ptr<const TriangleMeshData>;
+
 struct MeshTriangle {
     Eigen::Vector3d a, b, c;
 };

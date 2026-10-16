@@ -262,7 +262,7 @@ static void mesh() {
             check(inside == expected, "polyhedral hole classification");
         }
     const auto o = scene::obstacleFromGeometry(payload);
-    check(o.type == scene::Obstacle::kMesh && o.triangles == g.triangles, "mesh topology lost");
+    check(o.type == scene::Obstacle::kMesh && o.meshData->triangleIndices() == g.triangles, "mesh topology lost");
     scene::LidarScene scene({o}, .2, true);
     check(std::isinf(scene.closest({0, 0, -2}, Eigen::Vector3d::UnitZ(), 10)), "mesh hole filled");
     near(scene.closest({1.5, 0, -2}, Eigen::Vector3d::UnitZ(), 10), 1.5, 1e-10, "mesh top/bottom ray");

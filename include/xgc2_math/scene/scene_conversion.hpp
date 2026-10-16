@@ -64,7 +64,8 @@ inline Obstacle obstacleFromGeometry(const geometry::GeometryPayload& payload,
         o = Obstacle::ellipsoid(position, {g.semiaxes[0], g.semiaxes[1], g.semiaxes[2]}, q);
         break;
     case GeometryType::Mesh:
-        o = Obstacle::mesh(geometry::preparation_detail::eigenVertices(g), g.triangles, position, q);
+        o = Obstacle::mesh(prepareTriangleMesh(geometry::preparation_detail::eigenVertices(g), g.triangles), position,
+                           q);
         break;
     }
     validateObstacle(o);

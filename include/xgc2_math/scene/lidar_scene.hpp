@@ -170,13 +170,21 @@ class LidarScene {
 
     // Bitwise equal definitions compile and sample to bitwise equal shapes.
     static bool sameObstacle(const Obstacle& a, const Obstacle& b) {
-        if (a.type != b.type || a.vertices.size() != b.vertices.size() || a.triangles != b.triangles ||
+        if (a.type != b.type || a.vertices.size() != b.vertices.size() ||
             !sameBits(a.position.data(), b.position.data(), 3) ||
             !sameBits(a.orientation.coeffs().data(), b.orientation.coeffs().data(), 4) ||
             !sameBits(a.size.data(), b.size.data(), 3) || !sameBits(&a.radius, &b.radius, 1) ||
             !sameBits(&a.height, &b.height, 1) || !sameBits(a.radii.data(), b.radii.data(), 2) ||
             !sameBits(&a.tubeRadius, &b.tubeRadius, 1)) {
             return false;
+        }
+        if (a.type == Obstacle::kMesh && a.meshData != b.meshData) {
+            if (!a.meshData || !b.meshData || a.meshData->triangleIndices() != b.meshData->triangleIndices() ||
+                a.meshData->vertices().size() != b.meshData->vertices().size())
+                return false;
+            for (std::size_t i = 0; i < a.meshData->vertices().size(); ++i)
+                if (!sameBits(a.meshData->vertices()[i].data(), b.meshData->vertices()[i].data(), 3))
+                    return false;
         }
         for (std::size_t i = 0; i < a.vertices.size(); ++i) {
             if (!sameBits(a.vertices[i].data(), b.vertices[i].data(), 3)) {

@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "xgc2_math/scene/triangle_mesh.hpp"
+
 namespace xgc2_math::scene {
 
 // A closed solid (ring is nonconvex). Every shape is defined in its local frame and placed by (position, orientation),
@@ -24,8 +26,8 @@ struct Obstacle {
     double height = 0.0;
     Eigen::Vector2d radii = Eigen::Vector2d::Zero(); // ring: local X/Y ellipse semiaxes
     double tubeRadius = 0.0;                         // ring: Euclidean circular tube radius
-    std::vector<Eigen::Vector3d> vertices;
-    std::vector<std::array<uint32_t, 3>> triangles; // explicit mesh topology, never convexified
+    std::vector<Eigen::Vector3d> vertices;           // Convex only. Mesh source/topology lives solely in meshData.
+    TriangleMeshPtr meshData;
 
     static Obstacle box(const Eigen::Vector3d& center, const Eigen::Vector3d& size,
                         const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity()) {
@@ -87,14 +89,11 @@ struct Obstacle {
         o.orientation = orientation;
         return o;
     }
-    static Obstacle mesh(const std::vector<Eigen::Vector3d>& vertices,
-                         const std::vector<std::array<uint32_t, 3>>& triangles,
-                         const Eigen::Vector3d& position = Eigen::Vector3d::Zero(),
+    static Obstacle mesh(TriangleMeshPtr data, const Eigen::Vector3d& position = Eigen::Vector3d::Zero(),
                          const Eigen::Quaterniond& orientation = Eigen::Quaterniond::Identity()) {
         Obstacle o;
         o.type = kMesh;
-        o.vertices = vertices;
-        o.triangles = triangles;
+        o.meshData = std::move(data);
         o.position = position;
         o.orientation = orientation;
         return o;

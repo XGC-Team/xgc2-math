@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "xgc2_math/scene/ellipse_ring.hpp"
+#include "xgc2_math/scene/mesh_bvh.hpp"
 #include "xgc2_math/scene/obstacle.hpp"
 #include "xgc2_math/scene/polytope.hpp"
 #include "xgc2_math/scene/surface_sampling.hpp"
@@ -122,7 +123,7 @@ struct ShapeCore {
     Obstacle::Type type = Obstacle::kBox;
     std::uint32_t plane_first = 0; // convex: planes [plane_first, plane_first + plane_count) of the table
     std::uint32_t plane_count = 0;
-    std::uint32_t mesh_first = 0, mesh_count = 0;
+    std::uint32_t mesh_index = 0; // Only mesh instances index the table's shared immutable meshes.
 };
 
 // The compiled shapes of a scene. Hot data (ShapeCore, planes, bounds) is kept in flat arrays indexed by shape;
@@ -195,15 +196,24 @@ class ShapeTable {
             break;
         }
         case Obstacle::kMesh: {
-            validateTriangleMesh(o.vertices, o.triangles);
-            s.mesh_first = static_cast<std::uint32_t>(mesh_triangles_.size());
-            s.mesh_count = static_cast<std::uint32_t>(o.triangles.size());
-            std::transform(o.triangles.begin(), o.triangles.end(), std::back_inserter(mesh_triangles_),
-                           [&](const auto& t) {
-                               return MeshTriangle{o.vertices[t[0]], o.vertices[t[1]], o.vertices[t[2]]};
-                           });
-            for (const auto& v : o.vertices)
-                box.grow(s.position + s.rotation * v);
+            if (!o.meshData)
+                throw std::invalid_argument("mesh requires prepared mesh data");
+            s.mesh_index = meshSlot(o.meshData);
+            // Transform the tolerant local root box; source vertices/BVH are not copied or rebuilt.
+            const Eigen::Vector3d center = .5 * o.meshData->minCorner() + .5 * o.meshData->maxCorner();
+            const Eigen::Vector3d half = .5 * o.meshData->maxCorner() - .5 * o.meshData->minCorner();
+            for (int corner = 0; corner < 8; ++corner)
+                box.grow(s.position + s.rotation * (center + boxCorner(half, corner)));
+            // Local barycentric padding may be smaller than a world-coordinate ULP after translation.
+            // Bound the rigid-transform rounding too, without changing any triangle hit tolerance.
+            const Eigen::Vector3d magnitude =
+                s.position.cwiseAbs() +
+                s.rotation.cwiseAbs() * o.meshData->minCorner().cwiseAbs().cwiseMax(o.meshData->maxCorner().cwiseAbs());
+            const Eigen::Vector3d roundoff = 8 * std::numeric_limits<double>::epsilon() * magnitude;
+            for (int axis = 0; axis < 3; ++axis) {
+                box.lo[axis] = std::nextafter(box.lo[axis] - roundoff[axis], -kInf);
+                box.hi[axis] = std::nextafter(box.hi[axis] + roundoff[axis], kInf);
+            }
             break;
         }
         case Obstacle::kRing: {
@@ -254,12 +264,8 @@ class ShapeTable {
                 face_vertices_.insert(face_vertices_.end(), begin, end);
             }
         }
-        if (s.type == Obstacle::kMesh) {
-            const auto first = s.mesh_first;
-            s.mesh_first = static_cast<std::uint32_t>(mesh_triangles_.size());
-            mesh_triangles_.insert(mesh_triangles_.end(), other.mesh_triangles_.begin() + first,
-                                   other.mesh_triangles_.begin() + first + s.mesh_count);
-        }
+        if (s.type == Obstacle::kMesh)
+            s.mesh_index = meshSlot(other.meshes_[s.mesh_index]);
         core_.push_back(s);
         bounds_.push_back(other.bounds_[i]);
     }
@@ -353,8 +359,8 @@ class ShapeTable {
     double closestSurface(std::size_t i, const Eigen::Vector3d& o, const Eigen::Vector3d& d, double maxRange) const {
         const auto& s = core_[i];
         if (s.type == Obstacle::kMesh)
-            return meshRayClosest(mesh_triangles_.data() + s.mesh_first, s.mesh_count,
-                                  s.rotation.transpose() * (o - s.position), s.rotation.transpose() * d, maxRange);
+            return meshes_[s.mesh_index]->rayClosest(s.rotation.transpose() * (o - s.position),
+                                                     s.rotation.transpose() * d, maxRange);
         if (s.type == Obstacle::kRing)
             return ellipticRingRayClosest(s.rotation.transpose() * (o - s.position), s.rotation.transpose() * d,
                                           s.params.head<2>(), s.params.z(), maxRange);
@@ -374,8 +380,10 @@ class ShapeTable {
             // Scaling the unit-sphere residual by the smallest singular value is a signed
             // lower bound on Euclidean surface distance, as required by residual().
             return (q.cwiseQuotient(s.params).norm() - 1) * s.params.minCoeff();
-        case Obstacle::kMesh:
-            return meshResidual(mesh_triangles_.data() + s.mesh_first, s.mesh_count, q);
+        case Obstacle::kMesh: {
+            const auto& triangles = meshes_[s.mesh_index]->triangles();
+            return meshResidual(triangles.data(), triangles.size(), q);
+        }
         case Obstacle::kRing:
             return ellipticRingResidual(q, s.params.head<2>(), s.params.z());
         case Obstacle::kSphere:
@@ -417,8 +425,7 @@ class ShapeTable {
             break;
         }
         case Obstacle::kMesh:
-            for (std::uint32_t k = 0; k < s.mesh_count; ++k) {
-                const auto& t = mesh_triangles_[s.mesh_first + k];
+            for (const auto& t : meshes_[s.mesh_index]->triangles()) {
                 const std::array<Eigen::Vector3d, 3> face{{t.a, t.b, t.c}};
                 appendPolygon(face.data(), face.size(), (t.b - t.a).cross(t.c - t.a).normalized(), spacing, cell, out);
             }
@@ -519,7 +526,16 @@ class ShapeTable {
         return plane + 1 < face_first_.size() ? face_first_[plane + 1] : face_vertices_.size();
     }
 
-    std::vector<MeshTriangle> mesh_triangles_;
+    std::uint32_t meshSlot(const TriangleMeshPtr& mesh) {
+        const auto found = std::find(meshes_.begin(), meshes_.end(), mesh);
+        if (found != meshes_.end())
+            return static_cast<std::uint32_t>(found - meshes_.begin());
+        if (meshes_.size() == std::numeric_limits<std::uint32_t>::max())
+            throw std::invalid_argument("too many unique meshes");
+        meshes_.push_back(mesh);
+        return static_cast<std::uint32_t>(meshes_.size() - 1);
+    }
+    std::vector<TriangleMeshPtr> meshes_;
     std::vector<ShapeCore> core_;
     std::vector<Plane> planes_;                  // convex faces of every shape, shape by shape
     std::vector<std::size_t> face_first_;        // face of planes_[k]: face_vertices_[face_first_[k], faceEnd(k))

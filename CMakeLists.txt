@@ -231,6 +231,10 @@ if(XGC2_MATH_BUILD_TESTING)
     target_link_libraries(geometry_payload_test PRIVATE xgc2_math::geometry)
     add_test(NAME geometry_payload COMMAND geometry_payload_test)
 
+    add_executable(scene_mesh_bvh_test test/scene_mesh_bvh_test.cpp)
+    target_link_libraries(scene_mesh_bvh_test PRIVATE xgc2_math::scene)
+    add_test(NAME scene_mesh_bvh COMMAND scene_mesh_bvh_test)
+
     add_executable(scene_ring_test test/scene_ring_test.cpp)
     target_link_libraries(scene_ring_test PRIVATE xgc2_math::scene)
     add_test(NAME scene_ring COMMAND scene_ring_test)
