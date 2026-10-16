@@ -1,7 +1,7 @@
 schema: xgc2.product.v1
 id: libxgc2-math-dev
 name: XGC2 Math
-version: 0.6.0-5
+version: 0.6.0-6
 kind: toolchain-apt
 summary: Header-only C++ math library for XGC2 geometry, scene modeling and sensing,
   filters, observers, estimators, control utilities, and generated numerical Python/TypeScript bindings.
@@ -56,7 +56,7 @@ ownership:
   - /usr/share/xgc2_math/typescript
 release:
   apt_versions:
-    bionic: 0.6.0-5~bionic
-    focal: 0.6.0-5~focal
-    jammy: 0.6.0-5~jammy
-    noble: 0.6.0-5~noble
+    bionic: 0.6.0-6~bionic
+    focal: 0.6.0-6~focal
+    jammy: 0.6.0-6~jammy
+    noble: 0.6.0-6~noble
