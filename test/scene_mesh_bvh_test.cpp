@@ -1,9 +1,11 @@
 #include "xgc2_math/scene/lidar_scene.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <iterator>
 #include <new>
 #include <random>
 
@@ -152,11 +154,14 @@ static void correctness(const TriangleMeshPtr& mesh) {
     for (uint32_t i = 0; i < 128; ++i) {
         const Vec base(static_cast<double>(i % 8) * 3, static_cast<double>(i / 8) * 3, 0);
         const auto first = static_cast<uint32_t>(gridVertices.size());
-        for (const Vec& v : std::array<Vec, 4>{{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}}})
-            gridVertices.push_back(base + v);
+        const std::array<Vec, 4> vertices{{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}}};
+        std::transform(vertices.begin(), vertices.end(), std::back_inserter(gridVertices), [&base](const Vec& vertex) {
+            return Vec(base + vertex);
+        });
         for (auto index : std::array<Index, 4>{{{0, 2, 1}, {0, 1, 3}, {0, 3, 2}, {1, 2, 3}}}) {
-            for (auto& component : index)
-                component += first;
+            std::transform(index.begin(), index.end(), index.begin(), [first](uint32_t component) {
+                return component + first;
+            });
             gridIndices.push_back(index);
         }
     }
