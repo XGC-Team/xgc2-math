@@ -2,6 +2,7 @@
 # Installed include paths stay unchanged; these files belong only to geometry-dev.
 scene/bvh.hpp
 scene/ellipse_ring.hpp
+scene/mesh_bvh.hpp
 scene/obstacle.hpp
 scene/polytope.hpp
 scene/shape_table.hpp
